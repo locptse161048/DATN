@@ -40,6 +40,32 @@
 - **Quyết định liên quan:** mục 3 CLAUDE.md — ghi chú "EMBER/BODMAS là đặc trưng, không phải ảnh"; kênh 3 (ASCII ratio).
 - **Vì sao phù hợp:** hai vai trò: (1) dẫn chứng rằng benchmark detection hiện có là feature-based nên đồ án phải tự xây tập detection từ PE thô; (2) EMBER đưa đặc trưng printable-string vào bộ feature chuẩn → xác nhận tỉ lệ ký tự in được là tín hiệu phân loại có giá trị, củng cố lựa chọn kênh 3.
 
+### 1.4. Malware Classification Based on Image Segmentation (Nie, 2024)
+- **Citation:** W. Nie, "Malware Classification Based on Image Segmentation," arXiv:2406.03831, 2024.
+- **Link:** https://arxiv.org/abs/2406.03831
+- **Tóm tắt:** Ngoài đóng góp chính (cắt ảnh theo section PE thành multi-channel), paper dành riêng một phần thảo luận **width alignment như một hyperparameter**: cách chọn width làm thay đổi texture và cấu trúc ảnh, ảnh hưởng trực tiếp đến hiệu năng model; đặc biệt vùng `.rsrc` chứa resource (ảnh nhúng...) rất nhạy với width — cùng một file, đổi width có thể tạo texture khác hẳn.
+- **Kết quả chính:** thực nghiệm cho thấy hiệu năng model thay đổi theo cách căn width; kết luận width alignment là siêu tham số mới của bài toán malware visualization, cần được chọn và cố định có chủ đích.
+- **Quyết định liên quan:** "width CỐ ĐỊNH = 448, chốt sau EDA" (mục 3, 4 CLAUDE.md).
+- **Vì sao phù hợp:** đây là bằng chứng rằng **width không phải chi tiết cài đặt tùy tiện mà là hyperparameter phải chốt bằng thực nghiệm/EDA** — đúng quy trình đồ án đã làm (EDA 2026-06-28 → chốt 448). Trích khi biện luận vì sao dự án khảo sát phân bố kích thước file trước khi chọn width thay vì lấy đại một giá trị từ paper khác.
+
+### 1.5. Image-based malware representation with EfficientNet (Chaganti et al., 2022, JISA)
+- **Citation:** R. Chaganti, V. Ravi, T. D. Pham, "Image-based malware representation approach with EfficientNet convolutional neural networks for effective malware classification," *J. Information Security and Applications*, 69, 103306, 2022.
+- **Link:** https://doi.org/10.1016/j.jisa.2022.103306
+- **Tóm tắt:** So sánh các cách biểu diễn ảnh byte-level, trong đó có thí nghiệm giữa **width cố định vs width theo kích thước file** (kiểu bảng tra Nataraj); đánh giá nhiều CNN để cân đối tài nguyên tính toán.
+- **Kết quả chính:** **width cố định (512) cho kết quả phân loại tốt hơn** width phụ thuộc kích thước file trên Microsoft BIG2015; lý do: width cố định làm texture giữa các mẫu **đồng nhất và so sánh được** — cùng một pattern byte luôn tạo cùng một hình dạng 2D bất kể file to nhỏ.
+- **Quyết định liên quan:** "width cố định → texture đồng nhất giữa các mẫu" (mục 4 CLAUDE.md).
+- **Vì sao phù hợp:** là bằng chứng thực nghiệm trực tiếp nhất cho lựa chọn **một width cố định duy nhất cho toàn dataset** thay vì bảng tra theo file size của Nataraj 1.1 (vốn làm mỗi mẫu một width → cùng pattern byte tạo texture khác nhau, CNN khó học). Giá trị 512 của họ cùng bậc với 448 của đồ án → 448 nằm trong vùng đã được kiểm chứng của văn liệu.
+
+### Hộp tổng hợp: chuỗi lập luận cho width = 448
+Không có paper nào "chứng minh 448 tối ưu" — và cũng không có con số nào trong văn liệu được chứng minh tối ưu phổ quát (mỗi paper dùng 256/512/1024... theo dataset của họ). Lập luận cho 448 ghép từ 4 mảnh có cơ sở:
+
+1. **Phải dùng width cố định** (không theo file size): Chaganti 2022 (1.5) — fixed width thắng size-dependent width; Nataraj 1.1 dùng bảng tra chỉ vì hạn chế GIST thời 2011.
+2. **Width là hyperparameter phải chốt bằng khảo sát dữ liệu**: Nie 2024 (1.4) — width đổi là texture đổi, nên chọn qua EDA trên chính dataset (đồ án: EDA 2026-06-28, phân bố kích thước file + tỉ lệ mẫu đạt height ≥ 448).
+3. **Width phải ≥ độ phân giải train lớn nhất (448²) để mọi biến thể 224/336/448 đều là downsample thật**: Peters & Farhat 2023 (3.1) — resize là phép biến đổi mất mát; downsample từ ảnh native lớn giữ texture toàn cục, ngược lại nếu width < img_size thì phải **upsample = nội suy bịa pixel không mang thông tin mới**, làm sweep độ phân giải (luận điểm B) mất giá trị so sánh. Đây là lý do quyết định: width = max(img_size) = 448.
+4. **448 nằm trong dải quy ước của văn liệu và chia hết cho 64**: dải width phổ biến 256–1024 (Nataraj 1.1: 64–1024; Chaganti: 512; các nghiên cứu khác: 256/1024); 448 = 64×7 = 2×224, khớp lưới stride của các backbone CNN (downsample tổng 32×: 448/32 = 14 nguyên).
+
+**Điểm cần ghi vào threats to validity:** PE FileAlignment mặc định là 512 byte — width 512 sẽ căn ranh giới section thẳng hàng theo dòng, còn 448 thì không (tạo "trôi chéo" nhẹ ở ranh giới section, chính là hiệu ứng Nie 2024 mô tả với `.rsrc`). Đồ án chấp nhận trade-off này vì ưu tiên tính chất downsample-thuần của thiết kế sweep (mảnh 3); có thể nêu ablation width 448 vs 512 làm hướng mở rộng.
+
 ---
 
 ## 2. Luận điểm A: ảnh đa kênh composite
@@ -220,6 +246,9 @@
 | Quyết định trong CLAUDE.md | Paper cơ sở |
 |---|---|
 | Bytes → ảnh grayscale, width cố định, height thay đổi | 1.1 Nataraj 2011 |
+| Width cố định (không theo file size) → texture đồng nhất | 1.5 Chaganti 2022 |
+| Width là hyperparameter, chốt qua EDA | 1.4 Nie 2024 |
+| Width = 448 = max(img_size) → chỉ downsample, không upsample | Hộp tổng hợp mục 1 · 3.1 Peters & Farhat |
 | Không có benchmark ảnh detection chuẩn → phương pháp chặt | 1.2 Survey 2025 · 1.3 EMBER · 4.5 BODMAS |
 | Kênh 2: entropy Shannon cửa sổ byte **liên tiếp** (256B) | 2.1 Lyda & Hamrock 2007 · 2.2 Gibert 2018 · 2.3 MalFCS 2020 |
 | Kênh 3: tỉ lệ printable ASCII theo cửa sổ | 2.5 ICT Express 2022 · 1.3 EMBER · 2.4 HIT4Mal |
