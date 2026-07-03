@@ -1,0 +1,30 @@
+# Core (cập nhật 2026-06-22 — PyTorch 2.12 / torchvision 0.27 là bản stable mới nhất)
+torch>=2.12
+torchvision>=0.27
+numpy>=1.26
+pillow>=10.0
+# Model hiện đại (ConvNeXt-Tiny, ViT, Swin...)
+timm>=1.0
+# Tiền xử lý ảnh đa kênh (entropy từ byte, tỉ lệ ASCII); scikit-image cho tiện ích ảnh
+scikit-image>=0.22
+scipy>=1.11
+# Data / metrics
+scikit-learn>=1.4
+pandas>=2.2
+# Config & utils
+pyyaml>=6.0
+tqdm>=4.66
+# Visualization
+matplotlib>=3.8
+seaborn>=0.13
+# Experiment tracking (tùy chọn)
+tensorboard>=2.16
+# XAI & robustness (Giai đoạn 6b — tùy chọn)
+grad-cam>=1.5
+captum>=0.7
+# Thu thập & gán nhãn dữ liệu (Giai đoạn 1)
+requests>=2.31          # MalwareBazaar API
+pefile>=2024.8.26       # kiểm tra/đọc cấu trúc PE (lọc file hợp lệ)
+avclass-malicialab>=2.0 # AVClass2 — chuẩn hóa tên họ
+# Đo chi phí cho luận điểm độ phân giải (FLOPs)
+thop>=0.1.1

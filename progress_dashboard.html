@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DATN — Bảng theo dõi tiến độ</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#171d26; --panel2:#1f2632; --border:#2b3442;
+    --text:#e6edf3; --muted:#8b98a8; --accent:#4f9cf9; --green:#3fb950;
+    --amber:#d29922; --red:#f85149; --purple:#a371f7; --grey:#6e7681;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+  header{padding:20px 24px;background:var(--panel);border-bottom:1px solid var(--border);
+         position:sticky;top:0;z-index:10}
+  h1{margin:0 0 4px;font-size:18px}
+  .sub{color:var(--muted);font-size:13px}
+  .bar-wrap{margin-top:14px;background:var(--panel2);border-radius:8px;height:22px;overflow:hidden;border:1px solid var(--border)}
+  .bar{height:100%;background:linear-gradient(90deg,var(--green),#56d364);width:0;
+       transition:width .4s;display:flex;align-items:center;justify-content:flex-end;
+       padding-right:8px;font-size:11px;font-weight:600;color:#03210c}
+  .stats{display:flex;gap:14px;margin-top:12px;flex-wrap:wrap;font-size:12px}
+  .stat{background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:5px 10px}
+  .stat b{font-size:15px}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center}
+  select,button{background:var(--panel2);color:var(--text);border:1px solid var(--border);
+                border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  .wrap{padding:20px 24px;max-width:1100px;margin:0 auto}
+  .phase{margin:22px 0 8px;font-size:15px;color:var(--accent);border-bottom:1px solid var(--border);padding-bottom:6px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+        padding:14px 16px;margin-bottom:10px}
+  .card.done{opacity:.6}
+  .card-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .tid{font-weight:700;color:var(--accent);font-family:ui-monospace,monospace}
+  .title{font-weight:600;flex:1;min-width:160px}
+  .badge{font-size:11px;padding:2px 7px;border-radius:20px;font-weight:600}
+  .p0{background:#3d1418;color:#ff7b72} .p1{background:#1c2e1c;color:#56d364}
+  .p2{background:#21263d;color:#79c0ff}
+  .meta{color:var(--muted);font-size:12px;margin-top:6px}
+  .dod{margin-top:10px;border-top:1px dashed var(--border);padding-top:10px}
+  .dod-title{font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+  .dod label{display:flex;gap:8px;align-items:flex-start;margin:4px 0;cursor:pointer;font-size:13px}
+  .dod input{margin-top:3px}
+  .row{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  .st-TODO{color:var(--grey)} .st-DOING{color:var(--amber)} .st-BLOCKED{color:var(--red)}
+  .st-REVIEW{color:var(--purple)} .st-DONE{color:var(--green)}
+  textarea{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--border);
+           border-radius:6px;padding:8px;font-size:13px;font-family:inherit;resize:vertical;margin-top:8px}
+  .hidden{display:none}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡️ DATN — Detect Malware using Gray Image (Deep Learning)</h1>
+  <div class="sub">Bảng theo dõi danh sách · tiến độ · chất lượng (Definition of Done). Trạng thái lưu cục bộ trong trình duyệt.</div>
+  <div class="bar-wrap"><div class="bar" id="bar">0%</div></div>
+  <div class="stats" id="stats"></div>
+  <div class="toolbar">
+    <span style="color:var(--muted);font-size:12px">Lọc giai đoạn:</span>
+    <select id="fPhase"><option value="">Tất cả</option></select>
+    <span style="color:var(--muted);font-size:12px">Trạng thái:</span>
+    <select id="fStatus">
+      <option value="">Tất cả</option>
+      <option>TODO</option><option>DOING</option><option>BLOCKED</option>
+      <option>REVIEW</option><option>DONE</option>
+    </select>
+    <button id="export">⬇ Xuất JSON</button>
+    <button id="import">⬆ Nhập JSON</button>
+    <button id="reset">↺ Đặt lại</button>
+  </div>
+</header>
+<div class="wrap" id="list"></div>
+<input type="file" id="file" accept="application/json" class="hidden">
+
+<script>
+const TASKS = [
+ {id:"S1.1",phase:"1 — Thu thập & gán nhãn",title:"Thu thập malware (VM cô lập)",pri:"P0",deps:"—",est:"1–2 ngày",
+  dod:["Xử lý trong VM cô lập (không chạy file)","figshare 8.970 giải nén đủ","MalwareBazaar kéo API theo signature","RAT lưu kèm tên họ","Ghi metadata (hash/nguồn/nhãn) ra CSV"]},
+ {id:"S1.2",phase:"1 — Thu thập & gán nhãn",title:"Thu thập benign đa nguồn",pri:"P0",deps:"—",est:"1–2 ngày",
+  dod:["Đa dạng nguồn (chống bias) — không chỉ DLL Win10","Đủ số lượng cân bằng với malware","Chỉ lấy PE hợp lệ","Ghi metadata (hash/nguồn)"]},
+ {id:"S1.3",phase:"1 — Thu thập & gán nhãn",title:"Dedup + gán nhãn + AVClass2",pri:"P0",deps:"S1.1, S1.2",est:"1 ngày",
+  dod:["Dedup SHA-256 (loại trùng & gần trùng)","Gán benign/malware","AVClass2 chuẩn hóa tên họ","Họ <ngưỡng → 'other'","Ghi số lượng mỗi lớp/họ/nguồn"]},
+ {id:"S1.4",phase:"1 — Thu thập & gán nhãn",title:"EDA + chốt image_width + check bias",pri:"P1",deps:"S1.3",est:"0.5 ngày",
+  dod:["Phân bố benign/malware + họ + nguồn","Chốt image_width (height đa số ≥448)","Kiểm tra thiên lệch nguồn","Kết luận cân bằng & cách xử lý"]},
+
+ {id:"S2.1",phase:"2 — Tiền xử lý PE→ảnh",title:"Utils nền tảng (seed/config/logger)",pri:"P0",deps:"—",est:"0.5 ngày",
+  dod:["Set seed tái lập","Config loader đọc YAML","Logger file + stdout","Có test nhỏ"]},
+ {id:"S2.2",phase:"2 — Tiền xử lý PE→ảnh",title:"Đọc PE thô → ảnh xám (kênh 1) + test",pri:"P0",deps:"S2.1",est:"0.5 ngày",
+  dod:["Đọc nguyên bytes PE (giữ header)","Width cố định từ config (không bảng tra)","Pad 0 hàng cuối nếu lẻ","Unit test pass","Sinh thử 1 ảnh xem được"]},
+ {id:"S2.2b",phase:"2 — Tiền xử lý PE→ảnh",title:"Kênh entropy-byte + tỉ lệ ASCII + ghép 3 kênh",pri:"P0",deps:"S2.2",est:"1 ngày",
+  dod:["Entropy từ chuỗi byte (cửa sổ 256) cùng H×W","Tỉ lệ ASCII (0x20–0x7E) từ chuỗi byte, cùng H×W","Chuẩn hóa 0–255","Tính ở native rồi mới resize","Bật/tắt từng kênh (ablation)","Sinh thử ảnh 3 kênh xem được"]},
+ {id:"S2.3",phase:"2 — Tiền xử lý PE→ảnh",title:"Sinh ảnh 3 kênh toàn dataset",pri:"P0",deps:"S2.2b, S1.3",est:"1 ngày",
+  dod:["Streaming từng file (trong VM)","Sinh đủ ảnh mọi mẫu","Giữ native","Xuất bản native (archive)","Xuất bản resize 224/336/448","Config-driven + log số lượng"]},
+ {id:"S2.4",phase:"2 — Tiền xử lý PE→ảnh",title:"Split chống rò rỉ + stat per-channel",pri:"P0",deps:"S2.3",est:"0.5 ngày",
+  dod:["Grouped split (biến thể không vắt qua train/test)","Stratified theo lớp","(nếu có) temporal split","Cố định seed","Tính & lưu mean/std từng kênh (train)"]},
+
+ {id:"S3.1",phase:"3 — Dataset & DataLoader",title:"Dataset + transforms",pri:"P0",deps:"S2.4",est:"1 ngày",
+  dod:["Đọc ảnh 3 kênh theo split","Resize img_size + normalize per-channel","Hỗ trợ chọn tập con kênh (ablation)","Augment cấu hình được","Chạy CPU/GPU"]},
+ {id:"S3.2",phase:"3 — Dataset & DataLoader",title:"Cân bằng lớp + sanity check",pri:"P1",deps:"S3.1",est:"0.5 ngày",
+  dod:["Hiển thị 1 batch đúng","Sampler/class weights (benign khan hiếm)","Không lỗi shape/dtype"]},
+
+ {id:"S4.1",phase:"4 — Mô hình",title:"Model factory (VGG16/ResNet50/DenseNet121)",pri:"P0",deps:"—",est:"1 ngày",
+  dod:["Load pretrained ImageNet (in_chans=3)","Thay lớp cuối (nhị phân & đa lớp)","Tùy chọn freeze/unfreeze","Forward tensor giả OK"]},
+ {id:"S4.2",phase:"4 — Mô hình",title:"Baseline CNN custom",pri:"P2",deps:"S4.1",est:"0.5 ngày",
+  dod:["CNN custom forward đúng","Tích hợp factory qua tên config"]},
+ {id:"S4.3",phase:"4 — Mô hình",title:"Model hiện đại qua timm (ConvNeXt-Tiny/ViT)",pri:"P1",deps:"S4.1",est:"0.5 ngày",
+  dod:["timm.create_model pretrained","Thay head theo số lớp","Forward tensor giả OK","Chọn được qua tên config"]},
+
+ {id:"S5.1",phase:"5 — Huấn luyện",title:"Training loop lõi",pri:"P0",deps:"S3.1, S4.1",est:"1.5 ngày",
+  dod:["Loss (CE/BCE) + optim + scheduler","Early stopping","Lưu checkpoint tốt nhất","Log TensorBoard","Ghi config mỗi run"]},
+ {id:"S5.2",phase:"5 — Huấn luyện",title:"CLI train + config YAML",pri:"P0",deps:"S5.1",est:"0.5 ngày",
+  dod:["Chạy train.py --config","Mỗi model 1 config cùng setup","Đặt tên run đúng quy ước"]},
+ {id:"S5.3",phase:"5 — Huấn luyện",title:"Train PHÁT HIỆN nhị phân (4 model)",pri:"P1",deps:"S5.2",est:"1–2 ngày",
+  dod:["4 run (VGG/ResNet/DenseNet/ConvNeXt) hoàn tất","Đường val loss/acc hợp lý","Checkpoint lưu đủ"]},
+ {id:"S5.4",phase:"5 — Huấn luyện",title:"Train PHÂN LOẠI HỌ (nhánh phụ, top-N)",pri:"P2",deps:"S5.2, S1.3",est:"1 ngày",
+  dod:["Train top-N họ đủ mẫu (nhãn AVClass2)","Báo cáo + confusion matrix","Bảng family→behavior"]},
+
+ {id:"S5b.1",phase:"5b — 2 luận điểm chính",title:"Ablation kênh (LUẬN ĐIỂM CHÍNH 1)",pri:"P0",deps:"S5.2, S2.2b",est:"1 ngày",
+  dod:["Run gray/+entropy/+ascii/full/gray×3 cùng split,seed","Bảng accuracy/F1 + bộ nhớ + thời gian","Chứng minh full > gray (entropy+ascii thêm tin)","gray×3 ≈ gray (nhân bản không tăng)","Kết luận chốt 3-kênh composite"]},
+ {id:"S5b.2",phase:"5b — 2 luận điểm chính",title:"Hiệu quả độ phân giải 224² (LUẬN ĐIỂM CHÍNH 2)",pri:"P0",deps:"S5.2, S4.3",est:"2–3 ngày",
+  dod:["≥3 seed/cấu hình → mean±std","Kiểm định thống kê (t-test/McNemar) từng cặp size","Công bằng tuyệt đối (chỉ đổi img_size)","Đo accuracy/F1 + thời gian + GPU mem + FLOPs","Chạy trên bộ phát hiện PE thô (native lớn)","ViT/Swin nội suy pos-embed đúng","Biểu đồ accuracy-vs-resolution + Pareto cost"]},
+
+ {id:"S6.1",phase:"6 — Đánh giá",title:"Module metrics (+ ROC-AUC)",pri:"P0",deps:"—",est:"1 ngày",
+  dod:["Accuracy + P/R/F1","ROC-AUC","Confusion matrix","Test trên dữ liệu giả"]},
+ {id:"S6.2",phase:"6 — Đánh giá",title:"CLI evaluate + so sánh + check bias",pri:"P1",deps:"S6.1, S5.3",est:"1 ngày",
+  dod:["Bảng metrics đủ các run","Confusion matrix mỗi run","Kiểm tra thiên lệch nguồn/temporal","Xuất ra results/metrics/"]},
+ {id:"S6.3",phase:"6 — Đánh giá",title:"Phân tích lỗi + family→behavior",pri:"P2",deps:"S6.2",est:"0.5 ngày",
+  dod:["Ca FP/FN tiêu biểu","Nhận định nguyên nhân","Suy hành vi từ họ qua bảng tra"]},
+
+ {id:"S6b.1",phase:"6b — XAI & Robustness",title:"Grad-CAM/HiResCAM trên model tốt nhất",pri:"P2",deps:"S5.3",est:"1 ngày",
+  dod:["Heatmap cho mẫu benign & malware tiêu biểu","Nhận xét vùng quyết định","Dùng captum/pytorch-grad-cam"]},
+ {id:"S6b.2",phase:"6b — XAI & Robustness",title:"Robustness FGSM (nâng cao)",pri:"P2",deps:"S6b.1",est:"1–1.5 ngày",
+  dod:["Sinh mẫu đối kháng FGSM vài epsilon","Đo & báo cáo suy giảm accuracy","Nhận định độ bền"]},
+
+ {id:"S7.1",phase:"7 — Báo cáo",title:"Tổng hợp số liệu & biểu đồ",pri:"P1",deps:"S6.2",est:"0.5 ngày",
+  dod:["Biểu đồ chất lượng in báo cáo","Bảng so sánh cuối","Số liệu khớp run"]},
+ {id:"S7.2",phase:"7 — Báo cáo",title:"Viết các chương báo cáo",pri:"P1",deps:"S7.1",est:"song song",
+  dod:["Đủ 5 chương","Nêu rõ 2 RQ","Trích dẫn dataset & paper"]},
+];
+
+const KEY="datn_progress_v2";
+let state=load();
+function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return {}}}
+function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+function ts(id){return state[id]||(state[id]={status:"TODO",dod:{},note:""})}
+
+const STATUSES=["TODO","DOING","BLOCKED","REVIEW","DONE"];
+const $=s=>document.querySelector(s);
+
+// populate phase filter
+[...new Set(TASKS.map(t=>t.phase))].forEach(p=>{
+  const o=document.createElement("option");o.value=p;o.textContent="GĐ "+p;$("#fPhase").appendChild(o);
+});
+
+function render(){
+  const fp=$("#fPhase").value, fs=$("#fStatus").value;
+  const list=$("#list");list.innerHTML="";
+  let lastPhase=null;
+  TASKS.forEach(t=>{
+    const s=ts(t.id);
+    if(fp&&t.phase!==fp)return;
+    if(fs&&s.status!==fs)return;
+    if(t.phase!==lastPhase){lastPhase=t.phase;
+      const h=document.createElement("div");h.className="phase";h.textContent="Giai đoạn "+t.phase;list.appendChild(h);}
+    const card=document.createElement("div");
+    card.className="card"+(s.status==="DONE"?" done":"");
+    const dodHtml=t.dod.map((d,i)=>`<label><input type="checkbox" data-dod="${t.id}|${i}" ${s.dod[i]?"checked":""}><span>${d}</span></label>`).join("");
+    card.innerHTML=`
+      <div class="card-top">
+        <span class="tid">${t.id}</span>
+        <span class="title">${t.title}</span>
+        <span class="badge ${t.pri.toLowerCase()}">${t.pri}</span>
+      </div>
+      <div class="meta">Phụ thuộc: ${t.deps} · Ước lượng: ${t.est}</div>
+      <div class="dod">
+        <div class="dod-title">Definition of Done — chất lượng (${Object.values(s.dod).filter(Boolean).length}/${t.dod.length})</div>
+        ${dodHtml}
+      </div>
+      <div class="row">
+        <span class="dot" style="background:var(--${{TODO:'grey',DOING:'amber',BLOCKED:'red',REVIEW:'purple',DONE:'green'}[s.status]})"></span>
+        <span style="color:var(--muted);font-size:12px">Trạng thái:</span>
+        <select data-status="${t.id}">${STATUSES.map(x=>`<option ${x===s.status?"selected":""}>${x}</option>`).join("")}</select>
+      </div>
+      <textarea data-note="${t.id}" placeholder="Ghi chú / blocker / link checkpoint...">${s.note||""}</textarea>`;
+    list.appendChild(card);
+  });
+  bindCard();updateStats();
+}
+
+function bindCard(){
+  document.querySelectorAll("[data-dod]").forEach(el=>el.onchange=e=>{
+    const[id,i]=e.target.dataset.dod.split("|");ts(id).dod[i]=e.target.checked;
+    // auto: nếu tất cả DoD tick và đang không DONE → gợi ý REVIEW
+    save();render();
+  });
+  document.querySelectorAll("[data-status]").forEach(el=>el.onchange=e=>{
+    ts(e.target.dataset.status).status=e.target.value;save();render();
+  });
+  document.querySelectorAll("[data-note]").forEach(el=>el.oninput=e=>{
+    ts(e.target.dataset.note).note=e.target.value;save();
+  });
+}
+
+function updateStats(){
+  const c={TODO:0,DOING:0,BLOCKED:0,REVIEW:0,DONE:0};
+  TASKS.forEach(t=>c[ts(t.id).status]++);
+  const pct=Math.round(c.DONE/TASKS.length*100);
+  $("#bar").style.width=pct+"%";$("#bar").textContent=pct+"%";
+  $("#stats").innerHTML=
+    `<div class="stat">Tổng <b>${TASKS.length}</b></div>`+
+    STATUSES.map(s=>`<div class="stat st-${s}">${s} <b>${c[s]}</b></div>`).join("");
+}
+
+$("#fPhase").onchange=render;$("#fStatus").onchange=render;
+$("#reset").onclick=()=>{if(confirm("Đặt lại toàn bộ tiến độ?")){state={};save();render();}};
+$("#export").onclick=()=>{
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download="datn_progress.json";a.click();
+};
+$("#import").onclick=()=>$("#file").click();
+$("#file").onchange=e=>{const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();r.onload=()=>{try{state=JSON.parse(r.result);save();render();}catch(x){alert("File không hợp lệ")}};r.readAsText(f);};
+
+render();
+</script>
+</body>
+</html>

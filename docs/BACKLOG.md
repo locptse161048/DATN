@@ -1,0 +1,239 @@
+# BACKLOG — Danh sách task theo phiên làm việc
+
+Nguồn chân lý cho tiến độ dự án. Mỗi task **gọn trong một phiên** để tối ưu context: một phiên chỉ cần đọc `CLAUDE.md` + đúng file ở mục *Input*.
+
+**Trạng thái:** `TODO` · `DOING` · `BLOCKED` · `REVIEW` · `DONE`
+**Ưu tiên:** P0 (chặn pipeline) · P1 (chính) · P2 (tùy chọn)
+**DoD = Definition of Done** = tiêu chí chất lượng để task được tính `DONE`.
+
+> Đề tài: **Phát hiện mã độc dựa trên ảnh** (nhị phân benign/malware — chính; phân loại họ — phụ). Dataset PE thô: figshare + MalwareBazaar + RAT + benign tự thu. **Không dùng Malimg/BIG2015.**
+> Mỗi khi xong task: cập nhật trạng thái ở đây **và** tick trên `progress_dashboard.html`.
+
+---
+
+## Giai đoạn 1 — Thu thập & gán nhãn dữ liệu
+
+### S1.1 — Thu thập malware (đa nguồn, trong VM cô lập) `[P0]` `TODO`
+- **Input:** —.
+- **Output:** `data/raw/malware/` từ figshare (8.970) + MalwareBazaar (API, theo `signature`) + Ultimate-RAT-Collection; `SOURCE.md` ghi nguồn/license.
+- **DoD:** xử lý hoàn toàn trong **VM cô lập** (không chạy file); figshare giải nén đủ; MalwareBazaar kéo qua API theo họ (lưu kèm `signature` + `tags`); RAT lưu kèm tên họ (thư mục); ghi metadata (hash, nguồn, nhãn gốc) ra CSV.
+- **Phụ thuộc:** —  ·  **Ước lượng:** 1–2 ngày. Xem `docs/ENVIRONMENT.md`.
+
+### S1.2 — Thu thập benign đa nguồn `[P0]` `TODO`
+- **Input:** —.
+- **Output:** `data/raw/benign/` từ figshare benign (1.000) + Win10 `.dll/.bin` (VMware) + phần mềm hợp pháp đa dạng.
+- **DoD:** **đa dạng nguồn** (nhiều phần mềm/bản Windows/trình biên dịch) để chống thiên lệch — KHÔNG chỉ DLL hệ thống; đủ số lượng cân bằng với malware; ghi metadata (hash, nguồn); chỉ lấy file PE hợp lệ.
+- **Phụ thuộc:** —  ·  **Ước lượng:** 1–2 ngày.
+
+### S1.3 — Dedup + gán nhãn + chuẩn hóa họ (AVClass2) `[P0]` `TODO`
+- **Input:** S1.1, S1.2.
+- **Output:** bảng nhãn thống nhất `data/interim/labels.csv` (path, sha256, label 0/1, family, source, first_seen nếu có).
+- **DoD:** **dedup SHA-256** toàn bộ (loại trùng & gần trùng); gán benign/malware; **AVClass2** chuẩn hóa tên họ về 1 chuẩn (gom bí danh); đánh dấu họ "other" nếu < ngưỡng; ghi lại số lượng mỗi lớp/họ/nguồn.
+- **Phụ thuộc:** S1.1, S1.2  ·  **Ước lượng:** 1 ngày.
+
+### S1.4 — EDA + chốt `image_width` + kiểm tra thiên lệch `[P1]` `TODO`
+- **Input:** `data/interim/labels.csv`, file PE thô.
+- **Output:** `notebooks/01_eda.ipynb`.
+- **DoD:** phân bố benign/malware + họ + nguồn; phân bố kích thước file → **chốt `image_width`** (mục tiêu height đa số ≥ 448); **kiểm tra thiên lệch nguồn** (vd kích thước/định dạng benign vs malware có tách biệt bất thường không); kết luận cân bằng & cách xử lý.
+- **Phụ thuộc:** S1.3  ·  **Ước lượng:** 0.5 ngày.
+
+---
+
+## Giai đoạn 2 — Tiền xử lý PE thô → ảnh 3 kênh
+
+### S2.1 — Utils nền tảng `[P0]` `TODO`
+- **Input:** —.
+- **Output:** `src/utils/` — `seed.py`, `config.py` (load YAML), `logger.py`.
+- **DoD:** set seed tái lập; config loader đọc YAML; logger file+stdout; có test nhỏ.
+- **Phụ thuộc:** —  ·  **Ước lượng:** 0.5 ngày.
+
+### S2.2 — Đọc PE thô → ảnh xám (kênh 1) + test `[P0]` `TODO`
+- **Input:** vài file PE mẫu.
+- **Output:** `src/preprocessing/bytes_to_image.py` (đọc **PE thô đầy đủ**), `tests/test_bytes_to_image.py`.
+- **DoD:** đọc nguyên bytes file PE → uint8; **width cố định từ config** (không bảng tra); pad 0 hàng cuối nếu lẻ; unit test pass; sinh thử 1 ảnh xem được.
+- **Phụ thuộc:** S2.1  ·  **Ước lượng:** 0.5 ngày.
+
+### S2.2b — Kênh entropy-byte + tỉ lệ ASCII + ghép 3 kênh `[P0]` `TODO`
+- **Input:** ảnh xám (S2.2).
+- **Output:** `src/preprocessing/channels.py` + hàm stack `3×H×W` + unit test.
+- **DoD:** entropy **từ chuỗi byte** (cửa sổ liền kề, mặc định 256) & **tỉ lệ ASCII** (0x20–0x7E, cửa sổ byte) cùng H×W kênh 1; chuẩn hóa 0–255; tính ở native; bật/tắt từng kênh (ablation); sinh thử ảnh 3 kênh. Xem `docs/EXPERIMENTS.md`.
+- **Phụ thuộc:** S2.2  ·  **Ước lượng:** 1 ngày.
+
+### S2.3 — Sinh ảnh 3 kênh toàn dataset `[P0]` `TODO`
+- **Input:** `data/raw/`, S2.2b, `labels.csv`.
+- **Output:** `scripts/preprocess.py`; ảnh 3 kênh **native** (archive) + bản **resize 224/336/448**.
+- **DoD:** **streaming từng file** (trong VM); sinh đủ ảnh cho mọi mẫu; giữ native; xuất 2 tầng (native archive + resize để train); config-driven; thanh tiến trình; lưu theo nhãn.
+- **Phụ thuộc:** S2.2b, S1.3  ·  **Ước lượng:** 1 ngày. Xem `docs/ENVIRONMENT.md`.
+
+### S2.4 — Split chống rò rỉ + stat per-channel `[P0]` `TODO`
+- **Input:** ảnh đã sinh, `labels.csv`.
+- **Output:** file split `train/val/test` + mean/std per-channel (train).
+- **DoD:** **grouped split** (biến thể/họ cùng builder KHÔNG vắt qua train/test) + stratified theo lớp; (nếu có timestamp) cân nhắc temporal split; cố định seed; tính & lưu mean/std từng kênh trên train; không rò rỉ.
+- **Phụ thuộc:** S2.3  ·  **Ước lượng:** 0.5 ngày.
+
+---
+
+## Giai đoạn 3 — Dataset & DataLoader
+
+### S3.1 — Dataset + transforms `[P0]` `TODO`
+- **Input:** file split (S2.4).
+- **Output:** `src/datasets/malware_dataset.py`.
+- **DoD:** đọc ảnh 3 kênh theo split; resize `img_size`, normalize per-channel; chọn tập con kênh (ablation); augment cấu hình được; trả (image, label); chạy CPU/GPU.
+- **Phụ thuộc:** S2.4  ·  **Ước lượng:** 1 ngày.
+
+### S3.2 — Cân bằng lớp + sanity check `[P1]` `TODO`
+- **Input:** S3.1.
+- **Output:** weighted sampler/class weights (benign khan hiếm) + script kiểm tra batch.
+- **DoD:** hiển thị 1 batch đúng; xác minh phân bố sampler; không lỗi shape/dtype.
+- **Phụ thuộc:** S3.1  ·  **Ước lượng:** 0.5 ngày.
+
+---
+
+## Giai đoạn 4 — Mô hình
+
+### S4.1 — Model factory (pretrained) `[P0]` `TODO`
+- **Output:** `src/models/factory.py` — VGG16, ResNet50, DenseNet121.
+- **DoD:** load pretrained ImageNet (`in_chans=3`); thay lớp cuối (nhị phân & đa lớp); freeze/unfreeze; forward tensor giả OK.
+- **Phụ thuộc:** —  ·  **Ước lượng:** 1 ngày.
+
+### S4.2 — Baseline CNN custom `[P2]` `TODO`
+- **DoD:** CNN custom nhẹ forward đúng; tích hợp factory qua tên config.
+- **Phụ thuộc:** S4.1  ·  **Ước lượng:** 0.5 ngày.
+
+### S4.3 — Model hiện đại qua `timm` (ConvNeXt-Tiny / ViT) `[P1]` `TODO`
+- **DoD:** `timm.create_model(pretrained=True)`; thay head; forward OK; chọn qua config; bám SOTA 2025–2026.
+- **Phụ thuộc:** S4.1  ·  **Ước lượng:** 0.5 ngày.
+
+---
+
+## Giai đoạn 5 — Huấn luyện
+
+### S5.1 — Training loop lõi `[P0]` `TODO`
+- **Output:** `src/training/trainer.py`.
+- **DoD:** loss (CE/BCE), optimizer+scheduler, early stopping, checkpoint tốt nhất, log TensorBoard, ghi config mỗi run.
+- **Phụ thuộc:** S3.1, S4.1  ·  **Ước lượng:** 1.5 ngày.
+
+### S5.2 — CLI train + config YAML `[P0]` `TODO`
+- **Output:** `scripts/train.py`, `configs/{task}_{model}.yaml`.
+- **DoD:** chạy `--config`; mỗi model 1 config cùng setup; đặt tên run đúng quy ước.
+- **Phụ thuộc:** S5.1  ·  **Ước lượng:** 0.5 ngày.
+
+### S5.3 — Train PHÁT HIỆN nhị phân (4 model) `[P1]` `DONE`
+- **Output:** checkpoints + logs VGG16/ResNet50/DenseNet121/ConvNeXt-Tiny (benign vs malware) trong `experiments/detect_<model>_224_<timestamp>/`.
+- **DoD:** 4 run hoàn tất; val loss/acc hợp lý; checkpoint đủ.
+- **Kết quả test set (2026-07-03):**
+
+  | Model | Acc | Precision | Recall | F1 | ROC-AUC |
+  |---|---|---|---|---|---|
+  | VGG16 | 0.9689 | 0.9777 | 0.9703 | 0.9740 | 0.9901 |
+  | ResNet50 | 0.9698 | 0.9792 | 0.9703 | 0.9747 | 0.9909 |
+  | DenseNet121 | 0.9725 | 0.9830 | 0.9710 | 0.9770 | 0.9940 |
+  | ConvNeXt-Tiny | 0.9675 | 0.9740 | 0.9718 | 0.9729 | 0.9929 |
+
+  DenseNet121 tốt nhất mọi chỉ số; 4 model đều sát nhau (F1 0.973–0.977) — pipeline ổn định.
+- **Phụ thuộc:** S5.2  ·  **Ước lượng:** 1–2 ngày (GPU).
+
+### S5.4 — Train PHÂN LOẠI HỌ (nhánh phụ, top-N) `[P2]` `TODO`
+- **Output:** checkpoints phân loại top-N họ (figshare+bazaar+RAT, nhãn AVClass2).
+- **DoD:** train trên top-N họ đủ mẫu; báo cáo + confusion matrix; bảng family→behavior.
+- **Phụ thuộc:** S5.2, S1.3  ·  **Ước lượng:** 1 ngày (GPU).
+
+---
+
+## Giai đoạn 5b — Hai luận điểm chính (co-primary, song song)
+
+> S5b.1 = đóng góp chính 1 (ảnh 3-kênh composite). S5b.2 = đóng góp chính 2 (hiệu quả độ phân giải 224²). Chạy trên **bộ phát hiện PE thô**.
+
+### S5b.1 — Ablation thành phần kênh (LUẬN ĐIỂM CHÍNH 1) `[P0]` `TODO`
+- **Input:** S2.2b, S5.2 (ResNet50).
+- **Output:** run ResNet50 @224² cấu hình: gray / +entropy / +ascii / full / gray×3, cùng split/seed/epoch.
+- **DoD:** bảng accuracy/F1 + bộ nhớ + thời gian; chứng minh full > gray (entropy+ascii thêm tin) và gray×3 ≈ gray (nhân bản không tăng); kết luận chốt composite.
+- **Phụ thuộc:** S5.2, S2.2b  ·  **Ước lượng:** 1 ngày.
+
+### S5b.2 — Hiệu quả độ phân giải 224/336/448 (LUẬN ĐIỂM CHÍNH 2) `[P0]` `TODO`
+- **Mục tiêu:** chứng minh **224² ≈ hoặc nhỉnh hơn 336²/448² nhưng rẻ hơn nhiều** (H1).
+- **Input:** S5.2 (ResNet50 + ConvNeXt-Tiny), bộ phát hiện.
+- **Output:** runs (model × {224,336,448} × ≥3 seed); bảng accuracy-vs-cost; biểu đồ error bar; kết quả kiểm định thống kê.
+- **DoD:** **≥3 seed → mean±std**; **kiểm định thống kê** (t-test/McNemar) từng cặp size; **công bằng tuyệt đối** (chỉ đổi `img_size`); đo **accuracy/F1 + thời gian/epoch + GPU mem + FLOPs**; dùng ảnh native; ViT/Swin nội suy pos-embed; biểu đồ accuracy-vs-resolution + Pareto cost.
+- **Phụ thuộc:** S5.2, S4.3  ·  **Ước lượng:** 2–3 ngày (GPU). Xem `docs/EXPERIMENTS.md`.
+
+---
+
+## Giai đoạn 6 — Đánh giá & so sánh
+
+### S6.1 — Module metrics `[P0]` `DONE` (code, chưa có unit test riêng)
+- **Output:** `src/evaluation/metrics.py` — `compute_metrics` (Acc/P/R/F1/ROC-AUC/confusion), `plot_confusion_matrix`, `plot_roc_curve`, `plot_pr_curve`, `plot_training_curves`, `save_evaluation_report`.
+- **DoD:** nhận (y_true, y_pred/prob); vẽ confusion + ROC; test trên dữ liệu giả.
+- **Ghi chú:** đã tích hợp thẳng vào `scripts/train.py` — sau khi train xong tự đánh giá trên **test set** bằng `best.pt` và xuất `figures/{test_metrics.json, test_confusion_matrix.png, test_roc_curve.png, test_pr_curve.png, training_curves.png}` vào từng thư mục run. Đã smoke-test bằng dữ liệu giả (không phải pytest chính thức) và backfill cho run VGG16 cũ.
+- **Phụ thuộc:** —  ·  **Ước lượng:** 1 ngày.
+
+### S6.2 — CLI evaluate + bảng so sánh + kiểm tra bias `[P1]` `TODO`
+- **Output:** `scripts/evaluate.py`, bảng so sánh model, figures.
+- **DoD:** bảng metrics đầy đủ các run; confusion mỗi run; **kiểm tra thiên lệch nguồn / temporal** (accuracy có tụt khi đổi nguồn/thời gian không); xuất `results/metrics/`.
+- **Ghi chú:** bảng so sánh 4 model đã có thủ công ở S5.3 (test set); còn thiếu: script tự động hoá + kiểm tra bias nguồn/temporal.
+- **Phụ thuộc:** S6.1, S5.3  ·  **Ước lượng:** 1 ngày.
+
+### S6.3 — Phân tích lỗi + family→behavior `[P2]` `TODO`
+- **Output:** `notebooks/03_error_analysis.ipynb`, bảng family→behavior.
+- **DoD:** ca FP/FN tiêu biểu; nhận định nguyên nhân; (nhánh phụ) suy hành vi từ họ qua bảng tra.
+- **Phụ thuộc:** S6.2  ·  **Ước lượng:** 0.5 ngày.
+
+---
+
+## Giai đoạn 6b — XAI & Robustness (tùy chọn)
+
+### S6b.1 — Grad-CAM/HiResCAM `[P2]` `TODO`
+- **Output:** `notebooks/04_xai.ipynb`, heatmap.
+- **DoD:** heatmap cho mẫu benign & malware tiêu biểu; nhận xét vùng quyết định; dùng captum/pytorch-grad-cam.
+- **Phụ thuộc:** S5.3  ·  **Ước lượng:** 1 ngày.
+
+### S6b.2 — Robustness FGSM `[P2]` `TODO`
+- **Output:** bảng accuracy trước/sau FGSM.
+- **DoD:** mẫu đối kháng vài epsilon; đo suy giảm; nhận định độ bền.
+- **Phụ thuộc:** S6b.1  ·  **Ước lượng:** 1–1.5 ngày.
+
+---
+
+## Giai đoạn 7 — Báo cáo DATN
+
+### S7.1 — Tổng hợp số liệu & biểu đồ `[P1]` `TODO`
+- **DoD:** biểu đồ in báo cáo; bảng so sánh cuối; số liệu khớp run.
+- **Phụ thuộc:** S6.2  ·  **Ước lượng:** 0.5 ngày.
+
+### S7.2 — Viết các chương báo cáo `[P1]` `TODO`
+- **DoD:** đủ Tổng quan / Cơ sở lý thuyết / Phương pháp / Thực nghiệm / Kết luận; nêu rõ 2 RQ; trích dẫn dataset & paper.
+- **Phụ thuộc:** S7.1  ·  **Ước lượng:** song song.
+
+---
+
+## Bảng theo dõi nhanh
+
+| ID | Task | Ưu tiên | Phụ thuộc | Trạng thái |
+|----|------|---------|-----------|------------|
+| S1.1 | Thu thập malware (VM cô lập) | P0 | — | **DONE** |
+| S1.2 | Thu thập benign đa nguồn | P0 | — | **DONE** |
+| S1.3 | Dedup + nhãn + AVClass2 | P0 | S1.1,S1.2 | **DONE** |
+| S1.4 | EDA + chốt width(=448) + check bias | P1 | S1.3 | **DONE** |
+| S2.1 | Utils nền tảng (seed/config/logger) | P0 | — | **DONE** (code+test) |
+| S2.2 | Đọc PE thô → ảnh xám + test | P0 | S2.1 | **DONE** |
+| S2.2b | Entropy-byte + ASCII + ghép | P0 | S2.2 | **DONE** (code+test) |
+| S2.3 | Sinh ảnh 3 kênh toàn dataset | P0 | S2.2b,S1.3 | **DONE** (224 toàn bộ; 336/448 res_eligible 7,860) |
+| S2.4 | Split chống rò rỉ + stat | P0 | S2.3 | **DONE** (split 70/15/15, 0 rò rỉ, channel_stats) |
+| S3.1 | Dataset + transform | P0 | S2.4 | **DONE** (code) |
+| S3.2 | Cân bằng + sanity | P1 | S3.1 | ~ (class_weights trong train) |
+| S4.1 | Model factory (VGG/ResNet/DenseNet/ConvNeXt) | P0 | — | **DONE** (code) |
+| S4.2 | Baseline CNN custom | P2 | S4.1 | TODO |
+| S4.3 | Model hiện đại (timm) | P1 | S4.1 | TODO |
+| S5.1 | Training loop | P0 | S3.1,S4.1 | **DONE** (code) |
+| S5.2 | CLI train + config | P0 | S5.1 | **DONE** (code, vgg16) |
+| S5.3 | Train phát hiện nhị phân ×4 | P1 | S5.2 | **DONE** (DenseNet121 tốt nhất, F1=0.977) |
+| S5.4 | Train phân loại họ (phụ) | P2 | S5.2,S1.3 | TODO |
+| S5b.1 | Ablation kênh (chính 1) | P0 | S5.2,S2.2b | TODO |
+| S5b.2 | Hiệu quả độ phân giải (chính 2) | P0 | S5.2,S4.3 | TODO (chờ 336/448 từ Kali VM + config) |
+| S6.1 | Module metrics | P0 | — | **DONE** (tích hợp trong train.py) |
+| S6.2 | CLI evaluate + check bias | P1 | S6.1,S5.3 | TODO |
+| S6.3 | Phân tích lỗi + behavior | P2 | S6.2 | TODO |
+| S6b.1 | Grad-CAM/XAI | P2 | S5.3 | TODO |
+| S6b.2 | Robustness FGSM | P2 | S6b.1 | TODO |
+| S7.1 | Tổng hợp số liệu | P1 | S6.2 | TODO |
+| S7.2 | Viết báo cáo | P1 | S7.1 | TODO |

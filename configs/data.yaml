@@ -1,0 +1,52 @@
+# Cấu hình thu thập & xử lý dữ liệu — Giai đoạn 1
+# Chạy thu thập malware TRONG VM CÔ LẬP.
+
+paths:
+  raw_malware: data/raw/malware
+  raw_benign:  data/raw/benign
+  labels_csv:  data/interim/labels.csv
+
+# Ảnh: width CỐ ĐỊNH = 448 (chốt sau EDA S1.4).
+# Chọn 448 = độ phân giải lớn nhất của resolution sweep → native width = 448,
+# nên resize về 224/336 là thu nhỏ THẬT, về 448 không resample → không thông tin giả.
+image_width: 448
+
+# Lọc outlier kích thước file (EDA cho thấy min=662B, max=284MB):
+min_bytes: 4096          # bỏ file < 4 KB (ảnh quá nhỏ, vô nghĩa) — 44 file
+max_bytes: 31457280      # đọc tối đa 30 MB/file (giữ phần đầu) — 185 file bị cắt
+
+# Thí nghiệm độ phân giải (S5b.2) chỉ dùng mẫu native ≥ 448×448:
+res_sweep_min_bytes: 200704   # 448*448 → height ≥ 448 ở width 448
+
+malwarebazaar:
+  # API key: ưu tiên biến môi trường MB_API_KEY; có thể đặt ở đây (KHÔNG commit).
+  api_key: ""
+  per_signature: 200          # số mẫu mỗi họ
+  # Danh sách họ (signature) muốn kéo. Chọn các họ phổ biến, đa dạng hành vi.
+  signatures:
+    - AgentTesla       # stealer/trojan
+    - Formbook         # stealer
+    - RedLineStealer   # stealer
+    - Emotet           # loader/banking
+    - Mirai            # botnet (IoT)
+    - Heodo            # banking
+    - njrat            # RAT/backdoor
+    - RemcosRAT        # RAT/backdoor
+    - Trickbot         # banking/trojan
+    - SnakeKeylogger   # stealer
+
+# Gợi ý nguồn benign (chạy collect_benign.py nhiều lần, mỗi nguồn 1 source-tag)
+benign_sources:
+  - tag: win10_system32
+    note: "C:/Windows/System32 (máy Win10 sạch trong VMware)"
+  - tag: program_files
+    note: "C:/Program Files + Program Files (x86)"
+  - tag: portable_apps
+    note: "Phần mềm portable đa dạng (nhiều nhà phát hành/trình biên dịch)"
+
+# Tỉ lệ split (S2.4) — grouped/stratified, cố định seed
+split:
+  train: 0.70
+  val:   0.15
+  test:  0.15
+  seed:  42

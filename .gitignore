@@ -1,0 +1,37 @@
+# Data (nặng, không commit)
+data/raw/
+data/interim/
+data/processed/
+data/external/
+*.bytes
+*.asm
+
+# Archive ảnh/dữ liệu đóng gói (nặng, không commit — dùng để chuyển qua Drive/Colab thủ công)
+*.tar.gz
+*.zip
+*.7z
+
+# Model / logs
+results/checkpoints/
+results/logs/
+results/figures/
+results/metrics/
+experiments/
+*.pth
+*.pt
+*.ckpt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+datn-env/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,14 @@
+# Ablation — GRAY3: nhân bản gray thành 3 kênh (model in_chans=3). Đối chứng "nhân bản vô ích".
+run_name: ablation_resnet50_gray3
+seed: 42
+data:
+  split_dir: data/interim
+  channel_stats: data/interim/channel_stats.json
+  img_size: 224
+  channels: gray3
+  batch_size: 32
+  num_workers: 4
+  augment: false
+  split_prefix: split
+model: { name: resnet50, num_classes: 2, pretrained: true, in_chans: 3 }
+train: { epochs: 30, lr: 0.0001, weight_decay: 0.0001, early_stop_patience: 6, amp: true, class_weights: auto }
