@@ -100,7 +100,7 @@ def main():
         w.writeheader()
         for r in rows:
             w.writerow({k: r.get(k) for k in ["run"] + cols})
-    print(f"\n→ Đã lưu bảng: {args.out}  ({len(rows)} run)")
+    print(f"\n-> Da luu bang: {args.out}  ({len(rows)} run)")
 
 
 if __name__ == "__main__":
