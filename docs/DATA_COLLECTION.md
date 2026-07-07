@@ -52,6 +52,19 @@ LiberiumRat (977), XWorm (859), NjRat (412), và 200+ họ khác.
 
 ---
 
+### Phân bổ benign/malware trong `split_*.csv` (split phát hiện — headline, toàn bộ mẫu hợp lệ)
+
+> Cập nhật: 2026-07-08. Đây là **split phát hiện nhị phân dùng cho kết quả headline** (`full @224`, xem `CLAUDE.md` §2), khác với `sweep_*.csv` (chỉ gồm `res_eligible` ≥448², dùng riêng cho lưới hợp nhất 5×3 — xem `docs/EXPERIMENTS.md`). Đếm trực tiếp từ 3 file, cột `label` (0 = benign, 1 = malware).
+
+| Split | Benign | Malware | Tổng | Tỉ lệ malware:benign |
+|-------|:------:|:-------:|:----:|:---------------------:|
+| `split_train.csv` | 4.066 | 6.115 | 10.181 | 1,50:1 |
+| `split_val.csv`   | 872   | 1.311 | 2.183  | 1,50:1 |
+| `split_test.csv`  | 872   | 1.311 | 2.183  | 1,50:1 |
+| **Tổng**          | **5.810** | **8.737** | **14.547** | **1,50:1** |
+
+---
+
 ## Pipeline tổng thể
 
 ```
