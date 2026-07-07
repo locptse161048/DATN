@@ -170,11 +170,11 @@ def main():
                        run_dir / "best.pt")
             (run_dir / "best_metrics.json").write_text(
                 json.dumps(val, indent=2, ensure_ascii=False))
-            logger.info("  ↑ best (f1=%.4f) → best.pt", best_f1)
+            logger.info("  ^ best (f1=%.4f) -> best.pt", best_f1)
         else:
             bad += 1
             if bad >= patience:
-                logger.info("Early stop ở epoch %d (best ep %d, f1=%.4f).", ep, best_ep, best_f1)
+                logger.info("Early stop tai epoch %d (best ep %d, f1=%.4f).", ep, best_ep, best_f1)
                 break
 
     logger.info("XONG. Best val f1=%.4f (epoch %d). Checkpoint: %s/best.pt",

@@ -87,6 +87,13 @@ Mỗi byte (0–255) là một pixel xám. Chuỗi 1 chiều được "cuộn" t
 - **Hàng xóm ngang** của 1 pixel \= byte liền kề; **hàng xóm dọc** \= byte cách đúng W vị trí.  
 - **Width cố định cho mọi mẫu** → cùng một offset byte rơi vào cùng cột → **texture đồng nhất, so sánh được** giữa các file (header ở trên, các section xếp theo cột nhất quán). Đây là lý do ta cố định W thay vì dùng bảng width-theo-kích-thước kiểu Nataraj (mỗi file một width khác nhau → texture lệch scale).
 
+**Vì sao width cố định tốt hơn width theo file size (có bằng chứng thực nghiệm):**
+
+- **Cơ chế:** texture 2D mà CNN nhìn thấy là tương quan giữa các byte cách nhau đúng W. Dữ liệu PE đầy cấu trúc lặp chu kỳ P cố định (mảng struct, bảng import, bitmap trong `.rsrc`…): nếu W là bội của P → sọc dọc đều; W khác đi → cùng dữ liệu đó thành sọc chéo/nhiễu. Khi mỗi file một W (bảng Nataraj, hoặc W \= sqrt(size)), **cùng một pattern byte sinh ra texture khác nhau ở mỗi mẫu** → model phải học vô số biến thể của cùng một tín hiệu. W cố định đảm bảo *cùng pattern → cùng texture* trên toàn dataset.
+- **Bằng chứng 1 — Chaganti et al. 2022 (JISA 103306):** width cố định 512 cho kết quả phân loại tốt hơn width theo bảng file size trên BIG2015.
+- **Bằng chứng 2 — Nie 2024 (arXiv:2406.03831):** so trực tiếp 3 scheme trên BIG2015 với ResNet50 (logloss test, thấp \= tốt): **width cố định 1024 \= 0.0265** \< bảng Nataraj \= 0.0316 \< sqrt(file size) \= 0.0330. Width thay đổi theo mẫu càng nhiều (sqrt) kết quả càng tệ; Nie cũng chỉ ra `.rsrc` (chứa bitmap/icon có width riêng) là vùng nhạy nhất với thay đổi W.
+- Chi tiết citation + tóm tắt hai paper: `docs/RELATED_WORK.md` mục 1.4, 1.5 và "Hộp tổng hợp width \= 448".
+
 ### 3.2 Vì sao chọn đúng 448 (không phải 256/512…)
 
 Quyết định sau dựa trên 3 lý do:
@@ -94,6 +101,28 @@ Quyết định sau dựa trên 3 lý do:
 1. **Khớp với thí nghiệm độ phân giải.** Đồ án so sánh 224 / 336 / 448\. Chọn **width \= giá trị lớn nhất của sweep (448)** để: ảnh **native sinh ra ở 448** → resize về 336/224 là **thu nhỏ THẬT** (giảm thông tin có thật). Nếu chọn width nhỏ hơn (vd 256\) rồi phóng lên 448, đó là **nội suy \= thông tin giả**, làm thí nghiệm vô nghĩa.  
 2. **Tương thích pretrained ImageNet.** 448 \= 2×224 và 336 \= 1.5×224 → các mốc downsample "đẹp", ăn khớp với backbone pretrained ở 224\.  
 3. **Cân bằng chi tiết vs chi phí.** Phân bố kích thước file rất rộng (min \~662 B, max \~284 MB). Width 448 đủ rộng để giữ chi tiết texture mà không tạo ảnh quá "mảnh và cao" bất thường; chi phí 448² vẫn chạy được trên GPU dự án (RTX 4060 / Colab).
+
+### 3.2b Bằng chứng EDA (`scripts/eda.py`, S1.4 — 2026-06-28)
+
+Width **không** chọn tùy tiện mà chốt **sau khi chạy `scripts/eda.py`** — script vẽ **biểu đồ phân bố kích thước file** (`04_filesize_hist.png`) và in bảng "**width ứng viên → % ảnh có chiều cao native ≥ 448**":
+
+| Kích thước file (bytes) | Giá trị |
+| :---- | :---- |
+| min | 662 |
+| median | 210,944 (\~206 KB) |
+| mean | 853,038 |
+| max | 284,233,880 (\~284 MB) |
+
+| width ứng viên | % ảnh cao ≥ 448 |
+| :---- | :---- |
+| 128 | 76.3% |
+| 256 | 66.0% |
+| 384 | 57.2% |
+| **448** | **\~52%** |
+| 512 | 48.3% |
+| 768 | 41.9% |
+
+**Điểm cần nêu rõ (để quyết định truy vết được):** nếu chỉ tối ưu "tỉ lệ ảnh đủ cao", `eda.py` **gợi ý width \= 128** (mốc duy nhất ≥ 75%). Nhưng ta **cố ý bỏ qua gợi ý này và chốt 448** vì mục tiêu tối thượng là **thí nghiệm độ phân giải phải công bằng**: width phải bằng độ phân giải lớn nhất của sweep để mọi phép resize là **thu nhỏ thật, không nội suy**. Đổi lại, chỉ **\~52% mẫu** có native ≥ 448² (cờ `res_eligible`) đủ điều kiện vào sweep — cái giá đã cân nhắc và chấp nhận (median file \~206 KB → ảnh median \~448×471, gần vuông).
 
 ### 3.3 Lọc outlier kích thước (đi kèm quyết định width)
 
@@ -103,27 +132,31 @@ Quyết định sau dựa trên 3 lý do:
 
 ---
 
-## 4\. Lý thuyết: vì sao 3 kênh gray \+ entropy-byte \+ tỉ lệ ASCII
+## 4. Lý thuyết: vì sao 3 kênh gray + entropy-byte + tỉ lệ ASCII
 
 ### 4.1 Vì sao 3 kênh "có ý nghĩa" thay vì 1 kênh hoặc nhân bản
 
-Backbone pretrained ImageNet nhận 3 kênh. Hai lựa chọn tệ: (a) dùng 1 kênh xám (phải sửa conv1, và bỏ phí 2 kênh); (b) **nhân bản** kênh xám thành 3 (gray×3) — **không thêm thông tin**, chỉ tốn tài nguyên. Thay vào đó, ta đặt vào mỗi kênh **một "góc nhìn" khác nhau của cùng file**, đều **căn chỉnh không gian** (cùng H×W, cùng tọa độ pixel). Vì 3 kênh thực sự khác nhau, việc dùng `in_chans=3` \+ pretrained là **chính đáng**, và ablation sẽ chứng minh chúng *thêm thông tin thật*.
+Backbone pretrained ImageNet nhận 3 kênh. Hai lựa chọn tệ: (a) dùng 1 kênh xám (phải sửa conv1, và bỏ phí 2 kênh); (b) **nhân bản** kênh xám thành 3 (gray×3) — **không thêm thông tin**, chỉ tốn tài nguyên. Thay vào đó, ta đặt vào mỗi kênh **một "góc nhìn" khác nhau của cùng file**, đều **căn chỉnh không gian** (cùng H×W, cùng tọa độ pixel). Vì 3 kênh thực sự khác nhau, việc dùng `in_chans=3` + pretrained là **chính đáng**, và ablation sẽ chứng minh chúng *thêm thông tin thật*.
+
+> **Điểm cốt lõi: cả 3 kênh tính TỪ CHUỖI BYTE (không phải từ ảnh 2D).** Entropy và tỉ lệ ASCII đều là tính chất của **các byte liên tiếp** trong file (vùng packed = đoạn byte liên tiếp entropy cao; chuỗi = đoạn byte liên tiếp in được). Nếu tính bằng cửa sổ 2D trên ảnh, cửa sổ sẽ trộn các byte **cách nhau đúng `width` (448)** — sai ngữ nghĩa "đoạn byte liền kề". Tính trên **cửa sổ byte 1D** rồi trải giá trị về đúng vị trí byte vừa **đúng ngữ nghĩa** vừa **căn chỉnh pixel hoàn hảo** với kênh 1.
+
+![Mỗi khối 256 byte liên tiếp → 1 entropy + 1 tỉ lệ ASCII, trải về đúng vị trí byte](assets/byte_window_channels.png)
 
 ### 4.2 Kênh 1 — Grayscale (cấu trúc thô)
 
-- **Là gì:** byte → pixel, width=448. Bản đồ trực tiếp bố cục file.  
-- **Mang thông tin gì:** ranh giới và "vân" của các vùng — PE header, bảng import, vùng code (.text), dữ liệu (.data), tài nguyên (.rsrc). Mỗi vùng có phân bố byte riêng → texture riêng.  
+- **Là gì:** byte → pixel, width=448. Bản đồ trực tiếp bố cục file.
+- **Mang thông tin gì:** ranh giới và "vân" của các vùng — PE header, bảng import, vùng code (.text), dữ liệu (.data), tài nguyên (.rsrc). Mỗi vùng có phân bố byte riêng → texture riêng.
 - **Vì sao chọn:** đây là biểu diễn nền tảng (Nataraj 2011); giữ nguyên layout byte-level, là "khung xương" để hai kênh kia bổ sung.
 
-### 4.3 Kênh 2 — Entropy từ chuỗi byte (độ ngẫu nhiên)
+### 4.3 Kênh 2 — Entropy TỪ CHUỖI BYTE (độ ngẫu nhiên)
 
-**Là gì.** Entropy Shannon đo *độ khó đoán* của dữ liệu. Với một cửa sổ pixel, gọi `p_i` là tần suất của mức xám `i` (0–255), entropy là:
+**Là gì.** Entropy Shannon đo *độ khó đoán* của dữ liệu. Ta chia chuỗi byte gốc thành **khối 256 byte liên tiếp**, với mỗi khối gọi `p_i` là tần suất của giá trị byte `i` (0–255):
 
-> **H = − Σ p_i · log₂(p_i)**  (đơn vị: bit/byte; cực đại = 8 khi 256 mức xuất hiện đều như nhau)
+> **H = − Σ p_i · log₂(p_i)**  (đơn vị: bit/byte; cực đại = 8 khi 256 giá trị byte xuất hiện đều nhau)
 
-Ta tính **entropy từ chuỗi byte**: chuỗi byte gốc, chia thành **cửa sổ 256 byte liên tiếp**, tính H cho mỗi khối rồi gán cho mọi byte trong khối → bản đồ **cùng H×W** với kênh 1 (cuộn lại theo width=448), chuẩn hóa 0–255.
+Mỗi byte trong khối nhận entropy của khối đó → trải về đúng H×W (căn chỉnh kênh 1), rồi chuẩn hóa 0–255 (`byte_entropy_channel` trong `src/preprocessing/channels.py`).
 
-**Vì sao cửa sổ 256 byte.** Đủ dài để ước lượng phân bố byte ổn định (nhận diện vùng packed/nén, entropy > 7 bit), vẫn đủ cục bộ để tách vùng; đúng cách entropy được dùng để dò packing trong file thật — trên **đoạn byte liên tiếp**, không phải lân cận 2D.
+**Vì sao cửa sổ 256 byte.** Đủ mẫu để ước lượng phân bố byte ổn định trong một "đoạn" của file, mà vẫn đủ cục bộ để phân biệt vùng packed với vùng code. Đây là kích thước mặc định, chỉnh được qua config.
 
 **Đọc giá trị thế nào (ý nghĩa vật lý).**
 
@@ -133,39 +166,33 @@ Ta tính **entropy từ chuỗi byte**: chuỗi byte gốc, chia thành **cửa 
 | trung bình | code máy `.text`, dữ liệu hỗn hợp | có cấu trúc nhưng đa dạng |
 | thấp / ~0 (tối) | padding 0, bảng lặp, chuỗi đều | rất đều, dễ đoán |
 
-**Vì sao hữu ích cho phát hiện mã độc.** Đóng gói (packing) và mã hóa payload là **kỹ thuật né tránh phổ biến của malware**; chúng đẩy entropy của vùng tương ứng lên gần cực đại. Ảnh xám (kênh 1) *có* chứa thông tin này một cách gián tiếp, nhưng entropy **làm nó tường minh thành một đại lượng** để CNN dễ khai thác. Lưu ý quan trọng (để báo cáo trung thực): **benign cũng có thể có entropy cao** (trình cài đặt nén, tài nguyên đã nén) → entropy **một mình không kết luận** được, nên nó đóng vai trò *một trong ba góc nhìn* để model kết hợp, không phải luật cứng.
+**Vì sao hữu ích cho phát hiện mã độc.** Đóng gói (packing) và mã hóa payload là **kỹ thuật né tránh phổ biến của malware**; chúng đẩy entropy của đoạn byte tương ứng lên gần cực đại. Ảnh xám (kênh 1) *có* chứa thông tin này gián tiếp, nhưng entropy **làm nó tường minh thành một đại lượng** để CNN dễ khai thác. Lưu ý trung thực: **benign cũng có thể có entropy cao** (trình cài đặt nén, tài nguyên nén) → entropy **một mình không kết luận**, nên là *một trong ba góc nhìn* để model kết hợp.
 
-**Vì sao chọn entropy từ chuỗi byte (thay vì entropy 2D trên ảnh):**
-- **Đúng ngữ nghĩa packing:** packing/mã hóa là tính chất của **đoạn byte liên tiếp** trong file → entropy phải đo trên cửa sổ byte liền kề, đúng cách phân tích packing thực tế.
-- **Cửa sổ 2D làm sai ngữ nghĩa:** trên ảnh đã cuộn, một cửa sổ 9×9 trộn các byte **cách nhau `width`=448 vị trí** trong file → không còn là "đoạn byte liền kề", entropy mất ý nghĩa gốc.
-- **Căn chỉnh + rẻ:** tính trên chuỗi 1D rồi cuộn theo cùng width → cùng H×W, **căn chỉnh pixel** với kênh 1 & 3; vectorize bằng một lần `bincount`.
-- **Có tiền lệ:** byte-entropy theo cửa sổ trượt là chuẩn để dò vùng packed/encrypted (Lyda & Hamrock 2007; byte-entropy histogram — Saxe & Berman 2015).
+### 4.4 Kênh 3 — Tỉ lệ ký tự in được (printable ASCII) từ chuỗi byte
 
-### 4.4 Kênh 3 — Tỉ lệ ký tự in được (printable ASCII)
+**Là gì.** Với mỗi **khối 256 byte liên tiếp**, đếm tỉ lệ byte nằm trong dải **in được `0x20`–`0x7E`** (dấu cách '\ ' đến '~'):
 
-**Là gì.** Với mỗi cửa sổ byte liên tiếp (mặc định 256), đếm tỉ lệ byte **in được** — nằm trong khoảng ASCII `0x20–0x7E` (dấu cách, chữ, số, ký hiệu) — trên tổng số byte của cửa sổ:
+> **ascii_ratio(khối) = (số byte in được) / 256 ∈ [0, 1]**, rồi ×255 (map **tuyệt đối**, không min-max từng ảnh → giá trị nhất quán giữa các mẫu)
 
-> **ratio = (số byte in được) / (kích thước cửa sổ)** ∈ [0, 1]
+Mỗi byte nhận tỉ lệ của khối chứa nó → trải về H×W, căn chỉnh kênh 1 (`printable_ratio_channel` trong `channels.py`).
 
-Gán tỉ lệ cho mọi byte trong cửa sổ → bản đồ cùng H×W, map **×255 (tuyệt đối)**: 0 = không có text, 255 = toàn text. Không min-max từng ảnh → giá trị **nhất quán giữa các mẫu** (cùng mức sáng = cùng ý nghĩa).
+**Mang thông tin gì.** Làm nổi **vùng chuỗi/văn bản/resource** (mật độ ASCII cao → sáng) so với **code/dữ liệu đã packed** (mật độ ASCII thấp → tối). Ví dụ: bảng chuỗi, tên hàm import, URL, đường dẫn sẽ sáng rõ; đoạn mã máy hoặc payload nén sẽ tối.
 
-**Bắt thông tin gì trong PE.** Phần lớn thông tin "đọc được" của file ở dạng text ASCII: URL C2, tên hàm API, đường dẫn, khóa registry, thông báo, tên file. Vùng **chuỗi/text/resource** có mật độ ASCII cao (sáng); vùng **code nhị phân hoặc packed/mã hóa** có mật độ thấp (tối — byte trải khắp 0–255, ít rơi vào 0x20–0x7E). Bản đồ này vẽ ra "đâu là text, đâu là non-text" — bổ sung cho cấu trúc thô (kênh 1) và độ ngẫu nhiên (kênh 2).
+**Vì sao chọn ASCII (và vì sao trực giao với entropy).** Chuỗi (strings) là **đặc trưng tĩnh mạnh** trong phát hiện mã độc (Wojnowicz 2016: kết hợp string + entropy đạt ~99% phát hiện, <1% FP). Quan trọng: tỉ lệ ASCII **trực giao với entropy** — entropy đo *độ ngẫu nhiên*, ASCII đo *tính văn bản*. Một vùng có thể entropy trung bình nhưng giàu text (bảng chuỗi) hoặc entropy cao nhưng không phải text (đã mã hóa). Hai kênh nắm hai chiều thông tin khác nhau → bổ sung nhau thật sự, không dư thừa.
 
-**Vì sao chọn tỉ lệ ASCII (thay cho nén / phổ tần / toán tử texture 2D):**
-- **Trực giao với entropy nhất:** entropy đo *độ ngẫu nhiên*, ASCII-ratio đo *tính văn bản* — hai chiều khác hẳn (nén & phổ tần đều tương quan nhiều với entropy). 3 kênh càng ít trùng lặp càng "đáng giá".
-- **Từ chuỗi byte, căn chỉnh hoàn hảo:** cùng cơ chế cửa sổ byte như kênh 2 → cùng H×W, cùng tọa độ pixel.
-- **Rẻ, nhất quán, dễ giải thích:** chỉ so ngưỡng byte + trung bình cửa sổ (vectorize thuần numpy); giá trị tuyệt đối 0–1.
-- **Có cơ sở:** string là một trong những đặc trưng tĩnh mạnh nhất; Wojnowicz (2016) dùng **string + entropy** đạt ~99% phát hiện, <1% false positive.
+> **Vì sao ASCII thay cho các biến đổi ảnh (FFT/Gabor/wavelet):** các kênh tần số trên ảnh 2D hoặc lệch căn chỉnh (FFT toàn cục) hoặc vướng ràng buộc kích thước (wavelet), và quan trọng hơn — **không mang ngữ nghĩa "byte của file" trực tiếp** như entropy/ASCII. Bộ ba gray + entropy-byte + ASCII giữ đúng tinh thần "3 góc nhìn của chuỗi byte": **cấu trúc / độ ngẫu nhiên / mật độ văn bản**, tất cả cùng hệ quy chiếu byte.
 
 ### 4.5 Ghép kênh, chuẩn hóa, và bằng chứng
 
 Hình dưới: 3 kênh sinh từ bytes của một file PE thật (ảnh width=448), cả ba **căn chỉnh không gian** rồi chồng thành ảnh màu giả (R=gray, G=entropy, B=ascii):
 
-
+![Ba kênh (gray/entropy-byte/ASCII) trên mẫu thật và ảnh ghép](assets/three_channels_demo.png)
 
 - Tính cả 3 kênh ở **native** rồi stack `[gray, entropy, ascii]` → `3×H×W`; resize về `img_size` ở bước transform.
 - **Chuẩn hóa per-channel** bằng mean/std tính trên tập train (mỗi kênh một thống kê) — **không** dùng stat ImageNet RGB vì các kênh không phải màu.
-- **Ablation (luận điểm A):** so `gray / +entropy / +ascii / full / gray×3` (cùng split/seed) → kỳ vọng `full > gray` (entropy & ASCII thêm thông tin) và `gray×3 ≈ gray` (nhân bản vô ích).
+- **Ablation (nằm trong thí nghiệm hợp nhất — xem `docs/EXPERIMENTS.md`):** so `gray1 / gray×3 / +entropy / +ascii / full` (cùng split/seed) → kỳ vọng `full > (+entropy, +ascii) > gray1 ≈ gray×3`, chứng minh entropy & ASCII thêm thông tin thật còn nhân bản thì không.
+
+---
 
 ## 5\. Đầu ra của giai đoạn dữ liệu
 

@@ -1,0 +1,30 @@
+# Ablation kênh (S5b.1, Thí nghiệm A) — cấu hình 'entropy', seed 123
+# channels=+entropy, in_chans=3
+# Chạy: python scripts/train.py --config configs/ablation_resnet50_entropy_s123.yaml
+
+run_name: ablation_resnet50_entropy_s123
+seed: 123
+
+data:
+  split_dir: data/interim
+  channel_stats: data/interim/channel_stats.json
+  img_size: 224
+  channels: +entropy
+  batch_size: 32
+  num_workers: 4
+  augment: false
+  split_prefix: split
+
+model:
+  name: resnet50
+  num_classes: 2
+  pretrained: true
+  in_chans: 3
+
+train:
+  epochs: 30
+  lr: 0.0001
+  weight_decay: 0.0001
+  early_stop_patience: 6
+  amp: true
+  class_weights: auto

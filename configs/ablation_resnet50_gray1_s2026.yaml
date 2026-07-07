@@ -1,0 +1,30 @@
+# Ablation kênh (S5b.1, Thí nghiệm A) — cấu hình 'gray1', seed 2026
+# channels=gray1, in_chans=1
+# Chạy: python scripts/train.py --config configs/ablation_resnet50_gray1_s2026.yaml
+
+run_name: ablation_resnet50_gray1_s2026
+seed: 2026
+
+data:
+  split_dir: data/interim
+  channel_stats: data/interim/channel_stats.json
+  img_size: 224
+  channels: gray1
+  batch_size: 32
+  num_workers: 4
+  augment: false
+  split_prefix: split
+
+model:
+  name: resnet50
+  num_classes: 2
+  pretrained: true
+  in_chans: 1
+
+train:
+  epochs: 30
+  lr: 0.0001
+  weight_decay: 0.0001
+  early_stop_patience: 6
+  amp: true
+  class_weights: auto

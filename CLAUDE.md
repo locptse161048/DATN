@@ -24,11 +24,13 @@ File benign và malware (và các họ malware khác nhau) khi biểu diễn dư
 |-----|------|----------|
 | Đầy đủ | `data/interim/labels.csv` | phân loại họ (RAT/Winwebsec nguyên gốc) |
 | Detection 1.5:1 | `data/interim/detect_subset.csv` | phát hiện nhị phân |
-| Hợp lệ để train | `data/interim/valid_*.csv` | lọc min/max + cờ `res_eligible` (≥448² cho sweep) |
+| Hợp lệ để train | `data/interim/valid_*.csv` | lọc min/max + cờ `res_eligible` (≥448²) |
+| Split phát hiện (headline) | `data/interim/split_{train,val,test}.csv` | toàn bộ mẫu hợp lệ, `full @224` |
+| Split lưới hợp nhất | `data/interim/sweep_{train,val,test}.csv` | **res_eligible cố định — dùng chung cho CẢ 15 ô của lưới 5×3** |
 
 > **Số liệu thực tế (2026-06-28):** 27,340 PE duy nhất = 21,511 malware + 5,829 benign. Tập detection ≈ 8,743 malware + 5,829 benign (1.5:1).
 >
-> **Hai thí nghiệm dùng tập khác nhau (đừng nhầm):** *Phát hiện* (chính) dùng **toàn bộ** ~14,547 mẫu, chỉ ở **224**. *Resolution sweep* (luận điểm B) chỉ dùng **`res_eligible`** (native ≥448², ~7,806 mẫu) ở **CẢ 224/336/448 với cùng một tập** để so sánh công bằng. KHÔNG so 14,547@224 với 7,806@336. Ảnh 336/448 vì thế ít hơn 224 là **đúng thiết kế**.
+> **Hai bối cảnh dùng tệp khác nhau (đừng nhầm):** *Phát hiện tổng thể (headline)* dùng **`split_*.csv`** (toàn bộ ~14,547 mẫu), cấu hình `full` ở **224**. *Lưới hợp nhất (kênh × độ phân giải)* dùng **`sweep_*.csv`** (res_eligible native ≥448², ~7,806 mẫu) — **CẢ 15 ô (5 kênh × 3 size) chạy trên đúng cùng một bộ `sweep_*.csv`** để so sánh công bằng. KHÔNG so 14,547@224 với 7,806@336.
 
 ### Dataset (PE thô — KHÔNG dùng Malimg, KHÔNG dùng BIG2015)
 | Vai trò | Nguồn | Ghi chú |
@@ -47,15 +49,16 @@ File benign và malware (và các họ malware khác nhau) khi biểu diễn dư
 | Framework | **PyTorch** (+ torchvision), **timm** cho model hiện đại |
 | Mô hình | Transfer learning: **VGG16**, **ResNet50**, **DenseNet121** (pretrained ImageNet) + **ConvNeXt-Tiny** (timm); tùy chọn ViT/Swin, CNN custom |
 | Kênh ảnh | **3 kênh composite** (KHÔNG nhân bản), **cả 3 từ chuỗi byte**: k1=grayscale, k2=entropy (cửa sổ byte liền kề), k3=tỉ lệ ký tự in được (printable ASCII, cửa sổ byte). Cả 3 căn chỉnh không gian. Pretrained ImageNet `in_chans=3` |
-| Width ảnh | **CỐ ĐỊNH = 448** (chốt sau EDA 2026-06-28; = độ phân giải lớn nhất → 224/336 là downsample thật, không thông tin giả). Bỏ file < 4 KB; đọc tối đa 30 MB/file. height = ceil(len/width) |
-| Độ phân giải | Đa kích thước **224 / 336 / 448** (`img_size` config-driven) — **luận điểm chính 2** |
+| Width ảnh | **CỐ ĐỊNH = 448** (chốt sau EDA 2026-06-28; = độ phân giải lớn nhất → 224/336 là downsample thật, không thông tin giả). *`scripts/eda.py` gợi ý 128 nếu chỉ tối ưu %ảnh≥448, nhưng cố ý chọn 448 để sweep công bằng — bảng số & lý do: `docs/DATASET_PIPELINE.md` §3.2b.* Bỏ file < 4 KB; đọc tối đa 30 MB/file. height = ceil(len/width) |
+| Độ phân giải | Đa kích thước **224 / 336 / 448** (`img_size` config-driven) — **trục 2 của lưới hợp nhất** |
 | Đánh giá | Accuracy, Precision/Recall/F1, **ROC-AUC**, Confusion Matrix; split chống rò rỉ |
 | Hướng nâng cao | **XAI** (Grad-CAM/HiResCAM) trên model tốt nhất; tùy chọn robustness FGSM |
 | Ngôn ngữ | Python 3.10+ |
 
-> **Hai luận điểm chính (co-primary, song song)** — chi tiết: `docs/EXPERIMENTS.md`:
-> - **A — Ảnh 3-kênh composite:** gray + entropy-byte + ASCII-ratio (đều từ chuỗi byte) mang 3 góc nhìn khác nhau (cấu trúc / độ ngẫu nhiên / mật độ text). Ablation `gray vs +entropy vs +ascii vs full vs gray×3` chứng minh các kênh **thực sự thêm thông tin**, khác nhân bản kênh.
-> - **B — Hiệu quả độ phân giải (H1):** chứng minh **224² đạt accuracy xấp xỉ/nhỉnh hơn 336²/448² nhưng rẻ hơn nhiều lần**. Yêu cầu: **≥3 seed + mean±std + kiểm định thống kê** + bảng **accuracy-vs-cost** (thời gian/GPU mem/FLOPs). Chạy trên bộ phát hiện PE thô (ảnh native lớn). CNN đổi `img_size` là chạy; ViT/Swin nội suy positional embedding (`img_size=` cho timm).
+> **MỘT thí nghiệm hợp nhất (Thí nghiệm A) → 2 kết luận (co-primary)** — chi tiết: `docs/EXPERIMENTS.md`:
+> Lưới **5 cấu hình kênh × 3 độ phân giải**: `{gray1, gray×3, +entropy, +ascii, full} × {224, 336, 448}` = 15 ô/model, ≥3 seed, trên cùng tập `sweep_*.csv` (res_eligible ≥448²). Output: **1 bảng config×size + cột metrics**, làm nổi ô tốt nhất.
+> - **Kết luận 1 (đọc theo HÀNG — kênh):** `full > (+entropy,+ascii) > gray1 ≈ gray×3` → **3 kênh composite thêm thông tin hơn ảnh xám 1 kênh**, còn nhân bản (gray×3) thì không.
+> - **Kết luận 2 (đọc theo CỘT — độ phân giải):** **224² đạt accuracy lớn hơn/xấp xỉ 336²/448² nhưng rẻ ~2–4×** → 224 tối ưu. Yêu cầu: **mean±std + kiểm định thống kê** + bảng **accuracy-vs-cost**. CNN đổi `img_size` là chạy; ViT/Swin nội suy positional embedding.
 
 > **Về benchmark/SOTA:** bài toán **phát hiện dựa trên ảnh không có benchmark ảnh chuẩn** (EMBER/BODMAS là đặc trưng, không phải ảnh). Độ tin cậy dựa vào **phương pháp chặt** (split chống rò rỉ, chống bias nguồn, báo cáo P/R/F1/ROC-AUC), không dựa vào "gương". Khảo sát SOTA ảnh-mã-độc: `docs/SOTA_2026.md`.
 
@@ -126,22 +129,22 @@ DATN/
 
 - Pipeline PE thô → ảnh 3 kênh → phát hiện nhị phân chạy end-to-end.
 - So sánh ≥ 4 model (VGG16, ResNet50, DenseNet121, ConvNeXt-Tiny); báo cáo Acc/P/R/F1/ROC-AUC + confusion matrix.
-- Chứng minh 2 luận điểm: ablation kênh composite + hiệu quả độ phân giải 224².
+- Chứng minh 2 kết luận từ **lưới hợp nhất 5×3** (5 cấu hình kênh × 3 độ phân giải): (1) composite 3 kênh > ảnh xám 1 kênh; (2) 224² ≥/≈ 336²/448² nhưng rẻ hơn.
 - Split chống rò rỉ + kiểm tra thiên lệch nguồn; kết quả tái lập (cùng seed).
 - (Phụ) phân loại họ top-N + bảng family→behavior.
 
 ## 8. Trạng thái hiện tại
 
-> Cập nhật **2026-06-25**: chốt pivot sang **phát hiện nhị phân trên PE thô** (figshare + MalwareBazaar + RAT + benign tự thu); **bỏ Malimg & BIG2015**. Giữ 2 luận điểm (composite, độ phân giải) + nhánh phụ phân loại họ. Chưa tải dữ liệu, chưa viết phần lớn code.
+> Cập nhật **2026-07-07**: **lưới hợp nhất 5×3 (S5b.1) đã chạy xong 54/54 run** (45 ResNet50 + 9 ConvNeXt-Tiny, 3 seed) — cả 2 kết luận đã có số liệu + kiểm định thống kê thật, xem `docs/EXPERIMENTS.md` §2 và `docs/BACKLOG.md` S5b.1. Kết luận 2 (độ phân giải) mạnh, đầy đủ bằng chứng; Kết luận 1 (kênh) đúng xu hướng nhưng chưa có ý nghĩa thống kê ở n=3 seed. Bước tiếp theo: Giai đoạn 6 (đánh giá & so sánh, kiểm tra bias nguồn/temporal).
 
 - [x] Khung dự án & tài liệu
 - [x] Khảo sát SOTA (`docs/SOTA_2026.md`)
 - [x] Thu thập dữ liệu + dedup + gán nhãn (figshare+bazaar+RAT+benign) → labels.csv, detect_subset.csv (1.5:1), valid_*.csv
 - [x] EDA + chốt `image_width=448` + lọc outlier + kiểm tra bias (S1.4)
-- [~] Pipeline PE thô → ảnh 3 kênh (ĐANG LÀM — Giai đoạn 2)
-- [ ] Dataset/DataLoader + split chống rò rỉ
-- [ ] Huấn luyện + 2 luận điểm
-- [ ] Đánh giá & so sánh
+- [x] Pipeline PE thô → ảnh 3 kênh
+- [x] Dataset/DataLoader + split chống rò rỉ
+- [x] Huấn luyện + lưới hợp nhất 5×3 (2 kết luận) — 54/54 run, xem `docs/EXPERIMENTS.md` §2
+- [ ] Đánh giá & so sánh (kiểm tra bias nguồn/temporal — S6.2)
 - [ ] (Phụ) phân loại họ + (tùy chọn) XAI/robustness
 - [ ] Viết báo cáo DATN
 

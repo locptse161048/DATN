@@ -27,7 +27,7 @@ Mục tiêu: mỗi phiên chỉ nạp tối thiểu context để **tiết kiệ
 Làm thông một dataset trước cho chạy hết pipeline:
 Chạy thông pipeline **phát hiện nhị phân** trước (đúng tên đề tài):
 `S1.1+S1.2 → S1.3 → S1.4 → S2.1 → S2.2 → S2.2b → S2.3 → S2.4 → S3.1 → S4.1 → S5.1 → S5.2 → S5.3 → S6.1 → S6.2`
-rồi làm 2 luận điểm chính (`S4.3` → `S5b.1`, `S5b.2`), nhánh phụ phân loại họ (`S5.4`), và các task P2 (`S6.3`, `S6b.1`, `S6b.2`).
+rồi làm **lưới hợp nhất 5×3** rút 2 kết luận (`S4.3` → `S5b.1`), nhánh phụ phân loại họ (`S5.4`), và các task P2 (`S6.3`, `S6b.1`, `S6b.2`).
 
 ## Mẹo tiết kiệm limit
 - Tách phiên train (S5.3/S5.4) riêng — chúng tốn thời gian GPU, ít cần đối thoại.

@@ -21,7 +21,7 @@ train việc nặng (448², nhiều seed, chạy song song với local RTX 4060)
 | Config 336/448 | ❌ **chưa có file** |
 
 → Phần **1–5** dưới đây dùng được **ngay bây giờ** để train 4 model @224 (S5.3) trên Colab.
-Phần **6 (resolution sweep 336/448 — S5b.2)** là khung sẵn, chỉ chạy được sau khi hoàn thiện
+Phần **6 (lưới hợp nhất 5×3, trục 336/448 — S5b.1)** là khung sẵn, chỉ chạy được sau khi hoàn thiện
 tiền xử lý 336/448 ở Giai đoạn 2 (xem checklist ở cuối file).
 
 ---
@@ -161,7 +161,7 @@ trạng thái task `S5.3` trong `docs/BACKLOG.md` + `progress_dashboard.html`.
 
 ---
 
-## 6. Resolution sweep 224/336/448 (S5b.2) — CHƯA CHẠY ĐƯỢC, cần hoàn thiện trước
+## 6. Lưới hợp nhất 5×3 — trục độ phân giải 224/336/448 (S5b.1) — CHƯA CHẠY ĐƯỢC, cần hoàn thiện trước
 
 Checklist phải xong **trước khi** áp dụng phần này (xem mục 0):
 
