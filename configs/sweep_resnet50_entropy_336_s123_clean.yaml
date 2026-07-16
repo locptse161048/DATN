@@ -1,0 +1,38 @@
+# Config lưới hợp nhất 5x3 (S5b.1) — resnet50, hàng kênh 'entropy', @ 336px, seed 123
+# channels=+entropy, in_chans=3
+# Kết luận 1 (hàng, cố định size): full > +entropy/+ascii > gray1 ~ gray3
+# Kết luận 2 (cột, cố định kênh): acc@224 >=/~ acc@336/448 nhưng rẻ hơn nhiều
+# Chạy: python scripts/train.py --config configs/sweep_resnet50_entropy_336_s123.yaml
+
+run_name: sweep_resnet50_entropy_336_s123_clean
+seed: 123
+
+data:
+  split_dir: data/interim          # chứa sweep_train.csv / sweep_val.csv / sweep_test.csv (DÙNG CHUNG cho cả 224/336/448 và cả 5 hàng kênh)
+  split_prefix: sweep_clean
+  image_root: data/processed        # tự dựng path: {image_root}/{img_size}/{sha[:2]}/{sha}.png — bỏ qua cột image_path trong CSV
+  channel_stats: data/interim/channel_stats_sweep.json   # tính riêng trên sweep_train (5,498 ảnh)
+  img_size: 336
+  channels: +entropy
+  batch_size: 8                    # CỐ ĐỊNH cho cả lưới (công bằng BatchNorm giữa các độ phân giải — xem docs/EXPERIMENTS.md)
+  num_workers: 4
+  augment: false
+
+model:
+  name: resnet50
+  num_classes: 2
+  pretrained: true
+  in_chans: 3
+  freeze_backbone: false
+
+train:
+  epochs: 30
+  lr: 0.0001
+  weight_decay: 0.0001
+  early_stop_patience: 6
+  amp: true
+  class_weights: auto
+  grad_accum_steps: 1              # không dùng — batch=8 cố định đã đủ công bằng
+
+paths:
+  out_dir: experiments

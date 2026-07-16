@@ -164,6 +164,17 @@ Không có paper nào "chứng minh 448 tối ưu" — và cũng không có con 
 - **Quyết định liên quan:** yêu cầu "≥3 seed + mean±std + kiểm định thống kê" của luận điểm B (mục 3 CLAUDE.md).
 - **Vì sao phù hợp:** là cơ sở phương pháp luận trực tiếp cho thiết kế thống kê của H1: khác biệt 224-vs-448 dự kiến nhỏ, nên nếu không multi-seed + kiểm định thì kết luận "xấp xỉ nhau" hay "nhỉnh hơn" đều vô nghĩa. Trích trong phần Experimental Setup.
 
+### 3.5. Cơ sở chọn bộ seed {42, 123, 2026}
+- **Citation:**
+  - D. Picard, "Torch.manual_seed(3407) is all you need: On the influence of random seeds in deep learning architectures for computer vision," arXiv:2109.08203, 2021.
+  - J. Pineau et al., "Improving Reproducibility in Machine Learning Research (A Report from the NeurIPS 2019 Reproducibility Program)," *JMLR* 22, 2021. arXiv:2003.12206.
+  - (kết hợp với Bouthillier et al. 2021 — mục 3.4)
+- **Link:** https://arxiv.org/abs/2109.08203 · https://jmlr.org/papers/v22/20-303.html
+- **Tóm tắt:** Picard quét tới 10⁴ seed trên CIFAR-10/ImageNet: phân bố accuracy theo seed có outlier tốt/tệ rõ rệt → báo cáo kết quả từ một seed "đẹp" là cherry-picking (chính tiêu đề paper là câu mỉa mai trò "seed may mắn"). Pineau et al. (chương trình Reproducibility của NeurIPS) đặt chuẩn: mô tả đầy đủ cấu hình ngẫu nhiên (seed), báo cáo kết quả trên nhiều run kèm thước đo phân tán (mean±std), công bố code/config để tái lập.
+- **Kết quả chính:** chuẩn cộng đồng cho seed gồm 4 tính chất: (1) **chọn trước** (pre-specified, không chọn sau khi thấy kết quả); (2) **tùy ý** (arbitrary — giá trị cụ thể không mang ý nghĩa); (3) **cố định & công bố** (ghi trong config, tái lập được); (4) **nhiều seed** + báo cáo mean±std thay vì kết quả đơn lẻ.
+- **Quyết định liên quan:** bộ seed {42, 123, 2026} trong `EXPERIMENTS.md` §6, `reports/experimentA.md` §1; nguyên tắc reproducibility (CLAUDE.md mục 6).
+- **Vì sao phù hợp:** trả lời trực tiếp câu hỏi "vì sao 42/123/2026?": **giá trị cụ thể không cần cơ sở — quy trình mới cần cơ sở.** 42 là quy ước văn hóa của cộng đồng (Hitchhiker's Guide), 123 là dãy đơn giản phổ biến, 2026 là năm thực hiện đồ án — cả ba đều tùy ý một cách minh bạch, chọn trước khi chạy, cố định trong config YAML, và không seed nào được chọn vì "cho kết quả đẹp". Bằng chứng nội bộ rằng dự án không cherry-pick: trong `experimentA.md`, seed 42 không phải seed tốt nhất (gray1: 42→F1 96.80 < 123→97.44) nhưng vẫn được giữ nguyên và báo cáo đầy đủ. Kết luận rút từ mean±std trên cả 3 seed + kiểm định (theo 3.4), không từ seed đơn lẻ nào.
+
 ---
 
 ## 4. Phương pháp luận thí nghiệm
@@ -225,6 +236,24 @@ Không có paper nào "chứng minh 448 tối ưu" — và cũng không có con 
 - **Kết quả chính:** xác nhận lợi ích của **ngưỡng số engine (threshold-based aggregation)** trong việc ổn định nhãn, đồng thời cảnh báo hệ quả của ngưỡng chọn kém; khuyến nghị chờ nhãn "chín" (mẫu mới cần thời gian để các engine cập nhật).
 - **Quyết định liên quan:** quy tắc VirusTotal trong `docs/DATA_COLLECTION.md` §6: ≥5 engine → `confirmed_malware`; benign >2 engine detect → loại.
 - **Vì sao phù hợp:** cho cơ sở học thuật rằng **cách tiếp cận ngưỡng-nhiều-engine là đúng phương pháp** (thay vì tin một engine); ngưỡng cụ thể 5 của đồ án nằm trong dải thông dụng của văn liệu (2–15). Trích khi mô tả pipeline gán nhãn + ghi threats to validity về nhãn dao động (mẫu RAT cũ đã ổn định nhãn — một điểm cộng).
+
+### 4.8. Cơ sở tin cậy file hệ thống Windows từ máy ảo sạch làm benign
+- **Citation:**
+  - S. Dambra, Y. Han, S. Aonzo, P. Kotzias, A. Vitale, J. Caballero, D. Balzarotti, L. Bilge, "Decoding the Secrets of Machine Learning in Malware Classification: A Deep Dive into Datasets, Feature Extraction, and Model Performance," *ACM CCS 2023*. arXiv:2307.14657.
+  - NIST, "National Software Reference Library (NSRL)" — Reference Data Set (RDS).
+  - D. Kim, B. J. Kwon, T. Dumitraş, "Certified Malware: Measuring Breaches of Trust in the Windows Code-Signing PKI," *ACM CCS 2017*. (đối trọng)
+  - O. Kargarnovin et al., "Mal2GCN: A Robust Malware Detection Approach…," arXiv:2108.12473. (đối trọng về bias)
+- **Link:** https://arxiv.org/abs/2307.14657 · https://www.nist.gov/itl/ssd/software-quality-group/national-software-reference-library-nsrl · https://userlab.utk.edu/files/papers/kim/2017/kim2017certified.pdf · https://arxiv.org/abs/2108.12473
+- **Tóm tắt & vì sao đây là thực hành chuẩn:**
+  1. **Thực hành phổ biến trong văn liệu:** vì bytes benign không được phân phối công khai (bản quyền — EMBER/BODMAS chỉ phát feature), nhiều nghiên cứu xây tập benign từ **cài đặt Windows sạch/mặc định**. Dambra et al. (CCS 2023) tự xây benign bằng máy sạch Windows 10 + cài package Chocolatey rồi thu mọi file thực thi; các nghiên cứu khác thu executables từ cấu hình mặc định Windows XP→10 với giả định "software do Microsoft cung cấp trong bản cài mặc định là benign".
+  2. **Chuỗi tin cậy kỹ thuật:** VM cài từ ISO chính thức → file trong System32/SysWOW64/WinSxS do Microsoft phát hành, có **chữ ký số Authenticode**; VM snapshot sạch, không cài phần mềm lạ → không có đường lây nhiễm.
+  3. **Chuẩn forensic:** NIST **NSRL RDS** — cơ sở dữ liệu hash file "known" của phần mềm thương mại (gồm file hệ điều hành) — được pháp y máy tính dùng làm bộ lọc "known files" hàng chục năm; file hệ thống Windows chuẩn thuộc đúng nhóm này. *(Caveat của chính NIST: RDS đánh dấu "known", không phải "known good" tuyệt đối.)*
+  4. **Lớp xác minh của đồ án (không tin mù):** mọi benign đều qua VirusTotal (`DATA_COLLECTION.md` §6 — >2 engine detect → loại), tức không dựa duy nhất vào nguồn gốc.
+- **Đối trọng phải ghi nhận (threats to validity):**
+  - **Kim et al. 2017:** tồn tại malware ký số hợp lệ — chữ ký/nguồn gốc Microsoft không phải bảo chứng tuyệt đối → lớp VirusTotal ở (4) là cần thiết.
+  - **Mal2GCN (nguyên văn):** benign chỉ từ Windows sạch làm model *"overfitted on specific features that only exist in system executables… looking for simple Windows-related features such as existence of 'Microsoft' strings to label a file as benign"* → đây chính là lý do đồ án **đa dạng hóa 11 nguồn benign** (figshare, Program Files host, Sysinternals, NirSoft, Notepad++, PuTTY…) chứ không chỉ System32, khớp khung sampling bias của Arp 2022 (mục 4.2).
+- **Quyết định liên quan:** nguồn benign Win10 VM (System32/SysWOW64/WinSxS) trong `DATA_COLLECTION.md` §4.2; nguyên tắc "benign đa dạng nguồn" (CLAUDE.md mục 2).
+- **Vì sao phù hợp:** trả lời trực diện câu hỏi phản biện "lấy gì đảm bảo benign của bạn sạch?" — bằng 4 lớp: thực hành chuẩn văn liệu + chuỗi tin cậy cài đặt + chuẩn forensic NSRL + xác minh VirusTotal, kèm 2 đối trọng đã được giảm thiểu bằng thiết kế (đa nguồn + kiểm tra bias nguồn S6.2).
 
 ---
 
@@ -303,11 +332,13 @@ Không có paper nào "chứng minh 448 tối ưu" — và cũng không có con 
 | 224² đủ tốt, rẻ hơn (luận điểm B / H1) | 3.2 Rukundo · 3.3 thực nghiệm in-domain |
 | Trade-off resize mất thông tin (đối trọng H1, lưu native) | 3.1 Peters & Farhat 2023 |
 | ≥3 seed + mean±std + kiểm định thống kê | 3.4 Bouthillier 2021 |
+| Bộ seed {42,123,2026}: chọn trước, tùy ý, cố định, công bố | 3.5 Picard 2021 · Pineau 2021 |
 | Grouped/temporal split chống rò rỉ | 4.1 TESSERACT 2019 |
 | Benign đa nguồn, chống bias nguồn, dedup | 4.2 Arp 2022 |
 | VirusTotal + AVClass2 chuẩn hóa họ | 4.3 AVClass2 2020 |
 | Ngưỡng số engine VirusTotal (≥5 malware, >2 loại benign) | 4.7 Zhu 2020 |
 | Cắt file lớn, giữ 30 MB đầu (header/code) | 4.6 MalConv 2018 |
+| Tin cậy file Windows từ VM sạch làm benign | 4.8 Dambra CCS 2023 · NSRL · Kim 2017 (đối trọng) |
 | Cặp entropy + string là đặc trưng tĩnh mạnh | 2.6 Wojnowicz 2016 |
 | Tỉ lệ 1.5:1 + hạn chế của nó + ưu tiên ROC-AUC | 4.4 Dambra 2022 |
 | VGG16/ResNet50/DenseNet121 + transfer learning ImageNet | 5.1 gốc · 5.2 IMCEC · 5.3 El-Shafai 2021 |

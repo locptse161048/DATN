@@ -1,0 +1,33 @@
+# Config train ConvNeXt-Tiny — phát hiện nhị phân trên nhãn ĐÃ LÀM SẠCH (split_clean_*), seed 2026
+# Chạy: python scripts/train.py --config configs/detect_convnext_tiny_224_clean_s2026.yaml
+# Máy: local RTX 4060 8GB (224 vừa VRAM)
+
+run_name: detect_convnext_tiny_224_clean_s2026
+seed: 2026
+
+data:
+  split_dir: data/interim
+  split_prefix: split_clean        # nhãn đã làm sạch (make_clean_labels.py, S6.3)
+  channel_stats: data/interim/channel_stats.json
+  img_size: 224
+  channels: full
+  batch_size: 32
+  num_workers: 4
+  augment: false
+
+model:
+  name: convnext_tiny
+  num_classes: 2
+  pretrained: true
+  freeze_backbone: false
+
+train:
+  epochs: 30
+  lr: 0.0001
+  weight_decay: 0.0001
+  early_stop_patience: 6
+  amp: true
+  class_weights: auto
+
+paths:
+  out_dir: experiments

@@ -135,7 +135,7 @@ DATN/
 
 ## 8. Trạng thái hiện tại
 
-> Cập nhật **2026-07-07**: **lưới hợp nhất 5×3 (S5b.1) đã chạy xong 54/54 run** (45 ResNet50 + 9 ConvNeXt-Tiny, 3 seed) — cả 2 kết luận đã có số liệu + kiểm định thống kê thật, xem `docs/EXPERIMENTS.md` §2 và `docs/BACKLOG.md` S5b.1. Kết luận 2 (độ phân giải) mạnh, đầy đủ bằng chứng; Kết luận 1 (kênh) đúng xu hướng nhưng chưa có ý nghĩa thống kê ở n=3 seed. Bước tiếp theo: Giai đoạn 6 (đánh giá & so sánh, kiểm tra bias nguồn/temporal).
+> Cập nhật **2026-07-11**: **S6.2 xong** — `scripts/evaluate.py` (tải `best.pt`, chạy lại inference test set, xuất bảng so sánh model + kiểm tra bias nguồn) → `results/metrics/{evaluate_summary.csv, bias_source.csv}`. Phát hiện: nhóm **RAT** tụt **8.4–9.1 điểm % accuracy** so với tổng thể ở **cả 4 model** (bias nguồn thật, nhất quán). Kiểm tra **temporal KHÔNG khả thi** — `first_seen` trong `labels.csv` rỗng 100% — ghi nhận là giới hạn đã biết, xem `docs/BACKLOG.md` S6.2. Bước tiếp theo: S6.3 (phân tích lỗi + family→behavior).
 
 - [x] Khung dự án & tài liệu
 - [x] Khảo sát SOTA (`docs/SOTA_2026.md`)
@@ -144,7 +144,7 @@ DATN/
 - [x] Pipeline PE thô → ảnh 3 kênh
 - [x] Dataset/DataLoader + split chống rò rỉ
 - [x] Huấn luyện + lưới hợp nhất 5×3 (2 kết luận) — 54/54 run, xem `docs/EXPERIMENTS.md` §2
-- [ ] Đánh giá & so sánh (kiểm tra bias nguồn/temporal — S6.2)
+- [x] Đánh giá & so sánh + kiểm tra bias nguồn (S6.2) — temporal không khả thi (dữ liệu thiếu), đã ghi giới hạn
 - [ ] (Phụ) phân loại họ + (tùy chọn) XAI/robustness
 - [ ] Viết báo cáo DATN
 

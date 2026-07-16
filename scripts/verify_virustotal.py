@@ -124,8 +124,8 @@ def save_cache(cache: dict, cache_path: Path) -> None:
 
 def query_vt(sha256: str, api_key: str) -> Optional[dict]:
     """
-    Query VirusTotal API v3 cho 1 hash.
-    Trả về dict kết quả thô hoặc None nếu lỗi.
+    Query VirusTotal API v3 cho 1 hash bằng MỘT key.
+    Trả về dict kết quả, hoặc None nếu lỗi, hoặc {"_rate_limited": True} nếu key bị 429.
     """
     url = VT_API_URL.format(hash=sha256)
     headers = {"x-apikey": api_key}
@@ -134,14 +134,80 @@ def query_vt(sha256: str, api_key: str) -> Optional[dict]:
         if r.status_code == 404:
             return {"not_found": True, "sha256": sha256}
         if r.status_code == 429:
-            logger.warning("Rate limit VT — chờ 60s rồi thử lại...")
-            time.sleep(60)
-            r = requests.get(url, headers=headers, timeout=30)
+            # KHÔNG ngủ 60s ở đây nữa: để tầng trên xoay sang key khác.
+            return {"_rate_limited": True}
         r.raise_for_status()
         return r.json()
     except requests.RequestException as e:
         logger.error("Lỗi query VT (%s): %s", sha256[:12], e)
         return None
+
+
+class KeyPool:
+    """Xoay vòng nhiều API key VT (mỗi Gmail = 1 key: 4 req/phút, 500 req/ngày).
+
+    - Xoay vòng để chia đều tải -> tổng tốc độ = 4 x số_key req/phút.
+    - Key nào bị 429 nhiều lần -> coi như HẾT QUOTA NGÀY, loại khỏi vòng xoay.
+    - Hết sạch key -> báo cho vòng lặp chính dừng sạch, lưu tiến độ.
+    """
+
+    RATE_PER_KEY_PER_MIN = 4
+    MAX_429_BEFORE_DROP = 2
+
+    def __init__(self, keys: list[str]):
+        self.keys = [k for k in keys if k]
+        self.alive = list(self.keys)
+        self.i = 0
+        self.n429 = {k: 0 for k in self.keys}
+        self.used = {k: 0 for k in self.keys}
+
+    @property
+    def sleep_between(self) -> float:
+        """Giãn cách request để không vượt 4 req/phút TRÊN MỖI key."""
+        n = max(1, len(self.alive))
+        return 60.0 / (self.RATE_PER_KEY_PER_MIN * n)
+
+    def _next_key(self) -> Optional[str]:
+        if not self.alive:
+            return None
+        k = self.alive[self.i % len(self.alive)]
+        self.i += 1
+        return k
+
+    def _drop(self, key: str) -> None:
+        if key in self.alive:
+            self.alive.remove(key)
+            logger.warning("Key ...%s hết quota -> loại. Còn %d/%d key.",
+                           key[-6:], len(self.alive), len(self.keys))
+
+    def fetch(self, sha256: str) -> Optional[dict]:
+        """Thử lần lượt các key còn sống. None = lỗi thường; raise QuotaExhausted khi hết key."""
+        tried = 0
+        while self.alive and tried < len(self.alive) + 1:
+            key = self._next_key()
+            if key is None:
+                break
+            raw = query_vt(sha256, key)
+            if raw is not None and raw.get("_rate_limited"):
+                self.n429[key] += 1
+                if self.n429[key] >= self.MAX_429_BEFORE_DROP:
+                    self._drop(key)
+                else:
+                    time.sleep(2)   # nhịp nhanh quá -> nghỉ ngắn rồi thử key khác
+                tried += 1
+                continue
+            if raw is not None:
+                self.used[key] += 1
+                self.n429[key] = 0
+            return raw
+        raise QuotaExhausted("Tất cả API key đã hết quota ngày.")
+
+    def report(self) -> str:
+        return " | ".join(f"...{k[-6:]}: {self.used[k]}" for k in self.keys)
+
+
+class QuotaExhausted(RuntimeError):
+    pass
 
 
 def parse_vt_response(raw: dict, sha256: str, label: str, source: str) -> dict:
@@ -229,6 +295,84 @@ def load_from_checksums(csv_path: Path, only_malware: bool, only_benign: bool) -
                 continue
             rows.append({"sha256": r["sha256"], "label": r.get("label", ""), "source": r.get("source", "")})
     return rows
+
+
+def load_from_hashfile(hash_path: Path, labels_csv: Path) -> list[dict]:
+    """Đọc file .txt danh sách SHA-256 (1 hash/dòng) — dùng cho S6.3.
+
+    Kiểm chứng NHÃN của các mẫu model bỏ sót (FN): nếu VirusTotal cũng báo SẠCH
+    thì nhãn 'malware' của ta là SAI, không phải model sai.
+    Metadata (label/source/family) lấy bằng cách join với labels.csv theo sha256.
+    KHÔNG cần file PE — chỉ tra bằng hash.
+    """
+    hashes = [ln.strip().lower() for ln in hash_path.read_text(encoding="utf-8").splitlines()
+              if ln.strip()]
+    meta: dict[str, dict] = {}
+    if labels_csv.exists():
+        with open(labels_csv, "r", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                meta[r["sha256"].lower()] = r
+
+    items = []
+    for h in hashes:
+        m = meta.get(h, {})
+        raw_label = str(m.get("label", "1"))
+        items.append({
+            "sha256": h,
+            # labels.csv dùng 0/1 -> chuyển sang chuỗi mà parse_vt_response hiểu
+            "label": "benign" if raw_label == "0" else "malware",
+            "source": m.get("source", ""),
+            "family": m.get("family", ""),
+        })
+    logger.info("Đọc %d hash từ %s (%d khớp labels.csv).",
+                len(items), hash_path.name, sum(1 for i in items if i["source"]))
+    return items
+
+
+def print_label_check(rows: list[dict]) -> None:
+    """Tóm tắt dành riêng cho S6.3: nhãn có sai không?"""
+    print("\n" + "=" * 78)
+    print("KIỂM CHỨNG NHÃN — các mẫu model BỎ SÓT (ta gán 'malware', model nói 'sạch')")
+    print("=" * 78)
+    print(f'{"sha256[:16]":<18}{"nguồn":<14}{"VT phát hiện":<14}{"kết luận":<28}{"tên họ VT"}')
+    print("-" * 78)
+    verdict_vi = {
+        "confirmed_malware": "NHÃN ĐÚNG (là malware)",
+        "low_detection": "NGHI NGỜ (rất ít engine)",
+        "clean_but_labeled_malware": "NHÃN SAI (VT bảo sạch)",
+        "not_found": "KHÔNG CÓ TRÊN VT",
+    }
+    n_bad = n_low = n_ok = n_nf = 0
+    for r in sorted(rows, key=lambda x: int(x.get("malicious", 0) or 0)):
+        v = r.get("verdict", "")
+        if v == "clean_but_labeled_malware":
+            n_bad += 1
+        elif v == "low_detection":
+            n_low += 1
+        elif v == "confirmed_malware":
+            n_ok += 1
+        elif v == "not_found":
+            n_nf += 1
+        fams = (r.get("av_families") or "").split("|")[0][:28]
+        print(f'{r["sha256"][:16]:<18}{(r.get("source") or "-"):<14}'
+              f'{str(r.get("detection_ratio", "-")):<14}{verdict_vi.get(v, v):<28}{fams}')
+
+    total = len(rows)
+    print("-" * 78)
+    print(f"  NHÃN SAI (VT báo sạch hoàn toàn) : {n_bad}/{total}")
+    print(f"  NGHI NGỜ (1-4 engine phát hiện)  : {n_low}/{total}")
+    print(f"  NHÃN ĐÚNG (>=5 engine)           : {n_ok}/{total}")
+    print(f"  Không có trên VT                 : {n_nf}/{total}")
+    print("-" * 78)
+    if n_bad + n_low > total * 0.3:
+        print("  => PHẦN LỚN là NHÃN SAI/NGHI NGỜ: giả thuyết 'nhãn bẩn ở kho RAT' ĐƯỢC XÁC NHẬN.")
+        print("     Model đúng, nhãn sai. Cần làm sạch nhãn thay vì ép model tăng recall.")
+    elif n_ok > total * 0.7:
+        print("  => PHẦN LỚN ĐÚNG LÀ MALWARE: nhãn không sai -> đây là ĐIỂM MÙ THẬT của biểu diễn ảnh.")
+        print("     Ghi nhận là hạn chế; KHÔNG oversample RAT (sẽ tạo lối tắt nguồn).")
+    else:
+        print("  => Kết quả hỗn hợp: xem từng dòng để phân loại.")
+    print("=" * 78)
 
 
 def scan_dirs(malware_dir: Optional[Path], benign_dir: Optional[Path],
@@ -320,12 +464,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--api-key", default=os.environ.get("VT_API_KEY", ""),
                    help="VirusTotal API key (hoặc đặt VT_API_KEY env var).")
+    p.add_argument("--api-keys", default=os.environ.get("VT_API_KEYS", ""),
+                   help="NHIỀU key, cách nhau bởi dấu phẩy (hoặc env VT_API_KEYS). "
+                        "Mỗi key = 4 req/phút + 500 req/ngày -> 3 key = 12 req/phút, 1500/ngày.")
     # Đầu vào
     grp = p.add_mutually_exclusive_group()
     grp.add_argument("--checksums", type=Path, default=None,
                      help="File checksums.csv từ check_duplicates.py (ưu tiên dùng cái này).")
     grp.add_argument("--malware-dir", type=Path, default=None)
+    grp.add_argument("--hashes", type=Path, default=None,
+                     help="File .txt danh sách SHA-256 (1 hash/dòng) — vd fn_hashes_*.txt từ "
+                          "error_analysis.py. Tra bằng hash, KHÔNG cần file PE.")
 
+    p.add_argument("--labels", type=Path, default=Path("data/interim/labels.csv"),
+                   help="labels.csv để join metadata khi dùng --hashes.")
+    p.add_argument("--report-name", default="vt_report.csv",
+                   help="Tên file báo cáo trong --out-dir (đổi tên khi tra riêng 1 nhóm hash).")
     p.add_argument("--benign-dir", type=Path, default=None)
     # Bộ lọc
     p.add_argument("--only-malware", action="store_true", help="Chỉ query mẫu malware.")
@@ -355,8 +509,8 @@ def main() -> None:
     MALWARE_MIN_DETECTIONS = args.malware_min_detections
     BENIGN_MAX_DETECTIONS  = args.benign_max_detections
 
-    report_path    = args.out_dir / "vt_report.csv"
-    suspicious_path = args.out_dir / "vt_suspicious.csv"
+    report_path    = args.out_dir / args.report_name
+    suspicious_path = args.out_dir / args.report_name.replace(".csv", "_suspicious.csv")
 
     # Chế độ chỉ xem báo cáo
     if args.report_only:
@@ -368,27 +522,31 @@ def main() -> None:
         print_vt_summary(rows)
         return
 
-    if not args.api_key:
+    # Gom key: --api-keys (nhiều) ưu tiên, fallback --api-key (một)
+    keys = [k.strip() for k in args.api_keys.split(",") if k.strip()]
+    if not keys and args.api_key:
+        keys = [args.api_key.strip()]
+    if not keys:
         raise SystemExit(
-            "Thiếu VT API key. Đặt VT_API_KEY hoặc --api-key.\n"
+            "Thiếu VT API key. Đặt VT_API_KEY (1 key) hoặc VT_API_KEYS (nhiều key, cách nhau dấu phẩy).\n"
             "Đăng ký free tại https://www.virustotal.com/gui/join-us"
         )
+    pool = KeyPool(keys)
+    args.sleep = pool.sleep_between   # 1 key ->15s | 2 key ->7.5s | 3 key ->5s
+    logger.info("Số API key: %d -> %.1f req/phút, giãn cách %.1fs/query, quota ~%d/ngày.",
+                len(keys), pool.RATE_PER_KEY_PER_MIN * len(keys), args.sleep, 500 * len(keys))
 
     # Thu thập danh sách hash cần query
-    if args.checksums:
+    if args.hashes:
+        items = load_from_hashfile(args.hashes, args.labels)
+    elif args.checksums:
         items = load_from_checksums(args.checksums, args.only_malware, args.only_benign)
     else:
         mal_dir = args.malware_dir or Path("data/raw/malware")
         ben_dir = args.benign_dir  or Path("data/raw/benign")
         items = scan_dirs(mal_dir, ben_dir, args.only_malware, args.only_benign)
 
-    if args.limit > 0:
-        items = items[:args.limit]
-    logger.info("Sẽ query %d hash trên VirusTotal.", len(items))
-
-    # Ước tính thời gian
-    est_min = len(items) * args.sleep / 60
-    logger.info("Ước tính thời gian: %.0f phút (%.0fs/query, free tier).", est_min, args.sleep)
+    total_requested = len(items)
 
     # Load cache
     cache = load_cache(args.cache)
@@ -401,11 +559,32 @@ def main() -> None:
             for r in csv.DictReader(f):
                 existing[r["sha256"]] = r
 
+    # QUAN TRỌNG: lọc hash ĐÃ XONG trước, RỒI mới áp --limit.
+    # (Nếu cắt --limit trước thì chạy ngày hôm sau sẽ lấy lại đúng nhóm cũ và
+    #  không query được gì thêm — hỏng cơ chế chạy nhiều ngày theo quota.)
+    todo = [i for i in items if i["sha256"] not in existing]
+    n_done = total_requested - len(todo)
+    n_need_network = sum(1 for i in todo if i["sha256"] not in cache)
+
+    if args.limit > 0:
+        todo = todo[:args.limit]
+        n_need_network = min(n_need_network, args.limit)
+
+    logger.info("Tổng yêu cầu: %d | đã có kết quả: %d | còn lại: %d | lần này xử lý: %d",
+                total_requested, n_done, total_requested - n_done, len(todo))
+    est_min = n_need_network * args.sleep / 60
+    logger.info("Cần gọi mạng: %d hash -> ước tính %.0f phút (%.0fs/query).",
+                n_need_network, est_min, args.sleep)
+    if not todo:
+        logger.info("Không còn hash nào cần tra. Đã xong toàn bộ.")
+
     report_rows: list[dict] = list(existing.values())
     n_queried = 0
     n_cached  = 0
+    quota_hit = False
+    consecutive_fail = 0
 
-    for item in items:
+    for item in todo:
         sha    = item["sha256"]
         label  = item["label"]
         source = item["source"]
@@ -419,16 +598,27 @@ def main() -> None:
             raw = cache[sha]
             n_cached += 1
         else:
-            raw = query_vt(sha, args.api_key)
+            try:
+                raw = pool.fetch(sha)          # tự xoay vòng các key còn sống
+            except QuotaExhausted:
+                quota_hit = True
+                logger.error("TẤT CẢ %d key đã hết quota ngày. Dừng và lưu tiến độ.", len(keys))
+                break
             if raw is None:
-                logger.warning("Query thất bại: %s", sha[:12])
+                consecutive_fail += 1
+                logger.warning("Query thất bại (%d liên tiếp): %s", consecutive_fail, sha[:12])
+                if consecutive_fail >= 5:
+                    quota_hit = True
+                    logger.error("5 lần thất bại liên tiếp -> dừng và lưu tiến độ.")
+                    break
                 continue
+            consecutive_fail = 0
             cache[sha] = raw
             n_queried += 1
             # Lưu cache mỗi 10 query
             if n_queried % 10 == 0:
                 save_cache(cache, args.cache)
-            time.sleep(args.sleep)
+            time.sleep(pool.sleep_between)     # tự giãn theo số key CÒN SỐNG
 
         row = parse_vt_response(raw, sha, label, source)
         report_rows.append(row)
@@ -436,15 +626,16 @@ def main() -> None:
 
         # Log tiến trình
         total_done = n_queried + n_cached
-        if total_done % 20 == 0 or total_done == len(items):
+        if total_done % 20 == 0 or total_done == len(todo):
             logger.info(
                 "  [%d/%d] %s | verdict=%s | %s",
-                total_done, len(items), sha[:12], row["verdict"], row["detection_ratio"],
+                total_done, len(todo), sha[:12], row["verdict"], row["detection_ratio"],
             )
 
     # Lưu cache cuối
     save_cache(cache, args.cache)
     logger.info("Query thật: %d | Từ cache: %d", n_queried, n_cached)
+    logger.info("Đã dùng theo key: %s", pool.report())
 
     # Ghi báo cáo
     write_report(report_rows, report_path)
@@ -454,6 +645,27 @@ def main() -> None:
     write_report(sus_rows, suspicious_path)
 
     print_vt_summary(report_rows)
+
+    # Chế độ --hashes (S6.3): in thêm bảng KIỂM CHỨNG NHÃN cho đúng nhóm hash vừa tra
+    if args.hashes:
+        wanted = {i["sha256"] for i in items}
+        done_rows = [r for r in report_rows if r["sha256"].lower() in wanted]
+        # Chỉ in bảng chi tiết khi ít mẫu; nhiều mẫu thì bảng dài vô ích
+        if len(done_rows) <= 60:
+            print_label_check(done_rows)
+
+        remaining = total_requested - len(done_rows)
+        print("\n" + "=" * 70)
+        print(f"TIẾN ĐỘ: {len(done_rows)}/{total_requested} hash đã có kết quả "
+              f"| còn lại {remaining}")
+        if remaining > 0:
+            print(f"Quota free VT = 500/ngày. Chạy LẠI ĐÚNG LỆNH NÀY vào ngày mai để cộng dồn")
+            print(f"(script tự bỏ qua hash đã tra — không tốn quota lặp lại).")
+            if quota_hit:
+                print("Lần này DỪNG SỚM vì nhiều khả năng đã hết quota ngày.")
+        else:
+            print("HOÀN TẤT — đã tra xong toàn bộ danh sách.")
+        print("=" * 70)
 
 
 if __name__ == "__main__":

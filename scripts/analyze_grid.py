@@ -48,11 +48,21 @@ def _read_json(p: Path) -> dict:
         return {}
 
 
-def collect(exp_dir: Path, prefix: str) -> list[dict]:
-    """Đọc mọi run experiments/{prefix}* có đủ cost.json + test_metrics.json."""
+def collect(exp_dir: Path, prefix: str, variant: str = "clean") -> list[dict]:
+    """Đọc mọi run experiments/{prefix}* có đủ cost.json + test_metrics.json.
+
+    variant='clean'    -> chỉ run có '_clean' trong tên (nhãn đã làm sạch).
+    variant='original' -> chỉ run KHÔNG có '_clean' (nhãn gốc).
+    Cần thiết vì run clean cũng bắt đầu bằng cùng prefix -> phải tách kẻo trộn lẫn.
+    """
     rows = []
     for run in sorted(exp_dir.iterdir()):
         if not run.is_dir() or not run.name.startswith(prefix):
+            continue
+        is_clean = "_clean" in run.name
+        if variant == "clean" and not is_clean:
+            continue
+        if variant == "original" and is_clean:
             continue
         cost = _read_json(run / "cost.json")
         met = _read_json(run / "figures" / "test_metrics.json")
@@ -246,30 +256,34 @@ def main():
     ap = argparse.ArgumentParser(description="Tổng hợp lưới hợp nhất 5x3 (S5b.1).")
     ap.add_argument("--exp-dir", type=Path, default=Path("experiments"))
     ap.add_argument("--out-dir", type=Path, default=Path("results"))
+    ap.add_argument("--variant", choices=["clean", "original"], default="clean",
+                    help="'clean' = run nhãn đã làm sạch (_clean); 'original' = run nhãn gốc.")
     args = ap.parse_args()
 
-    resnet_rows = collect(args.exp_dir, "sweep_resnet50_")
-    convnext_rows = collect(args.exp_dir, "sweep_convnext_tiny_")
+    resnet_rows = collect(args.exp_dir, "sweep_resnet50_", args.variant)
+    convnext_rows = collect(args.exp_dir, "sweep_convnext_tiny_", args.variant)
 
     resnet_table = build_grid_table(resnet_rows, CHANNEL_ORDER)
     convnext_table = build_grid_table(convnext_rows, ["full"])
 
-    print_grid_table(resnet_table, "ResNet50 — lưới 5 kênh x 3 độ phân giải")
-    print_grid_table(convnext_table, "ConvNeXt-Tiny — trục độ phân giải (channels=full)")
+    tag = "" if args.variant == "original" else "_clean"   # tách file để không đè bảng gốc
 
-    save_grid_csv(resnet_table, args.out_dir / "metrics" / "grid_resnet50.csv")
-    save_grid_csv(convnext_table, args.out_dir / "metrics" / "grid_convnext_tiny.csv")
+    print_grid_table(resnet_table, f"ResNet50 — lưới 5 kênh x 3 độ phân giải ({args.variant})")
+    print_grid_table(convnext_table, f"ConvNeXt-Tiny — trục độ phân giải ({args.variant})")
+
+    save_grid_csv(resnet_table, args.out_dir / "metrics" / f"grid_resnet50{tag}.csv")
+    save_grid_csv(convnext_table, args.out_dir / "metrics" / f"grid_convnext_tiny{tag}.csv")
 
     resnet_stats = resolution_stats_tests(resnet_rows, CHANNEL_ORDER)
     convnext_stats = resolution_stats_tests(convnext_rows, ["full"])
     print_stats_tests(resnet_stats, "ResNet50")
     print_stats_tests(convnext_stats, "ConvNeXt-Tiny")
-    save_stats_csv(resnet_stats + convnext_stats, args.out_dir / "metrics" / "grid_resolution_ttest.csv")
+    save_stats_csv(resnet_stats + convnext_stats, args.out_dir / "metrics" / f"grid_resolution_ttest{tag}.csv")
 
-    plot_pareto(resnet_rows + convnext_rows, args.out_dir / "figures" / "pareto_accuracy_vs_cost.png")
+    plot_pareto(resnet_rows + convnext_rows, args.out_dir / "figures" / f"pareto_accuracy_vs_cost{tag}.png")
 
-    print(f"\n-> Da luu: {args.out_dir}/metrics/grid_resnet50.csv, grid_convnext_tiny.csv, "
-          f"grid_resolution_ttest.csv, {args.out_dir}/figures/pareto_accuracy_vs_cost.png")
+    print(f"\n-> Da luu: {args.out_dir}/metrics/grid_resnet50{tag}.csv, grid_convnext_tiny{tag}.csv, "
+          f"grid_resolution_ttest{tag}.csv, {args.out_dir}/figures/pareto_accuracy_vs_cost{tag}.png")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,30 @@
+%% Flowchart toàn bộ đồ án: Phát hiện mã độc bằng ảnh (PE thô -> ảnh 3 kênh -> CNN)
+%% Nhúng vào báo cáo: GitHub/GitLab/VSCode/Obsidian render trực tiếp; Word dùng plugin hoặc export PNG.
+flowchart TD
+    %% ===== DỮ LIỆU =====
+    A["1 · Thu thập PE thô<br/><i>figshare · MalwareBazaar · RAT · benign đa nguồn</i>"]
+    B["2 · Gán nhãn<br/><i>dedup SHA-256 · VirusTotal · gộp RAT thành 1 nhóm</i>"]
+    C["3 · Hai tập dữ liệu<br/><i>detect_subset 1.5:1 (phát hiện) · labels.csv đầy đủ (họ)</i>"]
+
+    %% ===== TIỀN XỬ LÝ =====
+    D["4 · Bytes → ảnh 3 kênh<br/><i>gray + entropy-byte + ascii · width cố định 448</i>"]
+    E["5 · Split chống rò rỉ<br/><i>grouped/stratified · split_* · sweep_*</i>"]
+
+    %% ===== HUẤN LUYỆN =====
+    F["6 · Huấn luyện 4 model<br/><i>VGG16 · ResNet50 · DenseNet121 · ConvNeXt-Tiny</i>"]
+    G["7 · Lưới 5 kênh × 3 độ phân giải<br/><i>2 kết luận: 3 kênh &gt; 1 kênh · 224 rẻ mà đủ tốt</i>"]
+
+    %% ===== ĐÁNH GIÁ & LÀM SẠCH =====
+    H["8 · Đánh giá + kiểm tra bias nguồn<br/><i>Acc/P/R/F1/ROC-AUC · confusion · figshare-only</i>"]
+    I["◆ 9 · Phân tích lỗi<br/><i>phát hiện điểm mù RAT (recall ~88%)</i>"]
+    J["◆ 10 · Làm sạch nhãn<br/><i>VirusTotal + ClamAV/chữ ký → ~17% RAT nhãn sai</i>"]
+
+    %% ===== SẢN PHẨM =====
+    K["11 · Dashboard + Báo cáo DATN<br/><i>FastAPI (Render) + frontend (Vercel) · viết báo cáo</i>"]
+
+    A --> B --> C --> D --> E --> F --> G --> H --> I --> J
+    J -. "train lại trên nhãn sạch" .-> F
+    J --> K
+
+    classDef active fill:#f6e9dd,stroke:#c26a2a,stroke-width:2px,color:#3a2410;
+    class I,J active;

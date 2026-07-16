@@ -1,0 +1,33 @@
+# Config train ConvNeXt-Tiny — phát hiện nhị phân benign/malware @224
+# Chạy: python scripts/train.py --config configs/detect_convnext_tiny_224.yaml
+# Máy: local RTX 4060 8GB (224 vừa VRAM; giảm batch_size nếu OOM)
+
+run_name: detect_convnext_tiny_224_clean
+seed: 42
+
+data:
+  split_dir: data/interim          # chứa split_train.csv / split_val.csv / split_test.csv
+  split_prefix: split_clean              # split_* (detection, S2.4) | sweep_* (resolution sweep, S5b.2)
+  channel_stats: data/interim/channel_stats.json
+  img_size: 224
+  channels: full                   # full | +entropy | +ascii | gray3 (ablation)
+  batch_size: 32                   # 4060 8GB: ConvNeXt-Tiny@224 ~32; giảm nếu OOM
+  num_workers: 4
+  augment: false                   # ảnh byte: không augment mạnh
+
+model:
+  name: convnext_tiny              # vgg16 | resnet50 | densenet121 | convnext_tiny
+  num_classes: 2
+  pretrained: true
+  freeze_backbone: false
+
+train:
+  epochs: 30
+  lr: 0.0001
+  weight_decay: 0.0001
+  early_stop_patience: 6
+  amp: true                        # AMP để tiết kiệm VRAM + nhanh hơn
+  class_weights: auto              # cân bằng benign khan hiếm (1.5:1)
+
+paths:
+  out_dir: experiments             # mỗi run lưu vào experiments/<run>_<timestamp>/
